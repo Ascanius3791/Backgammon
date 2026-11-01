@@ -11,6 +11,9 @@
 // DEEP (0..2): residual layers h += tanh(Wd h + bd) after the hidden layer. A saved net with fewer gets the
 // missing ones as Wd = bd = 0, the identity, so it keeps its output exactly (the layers still learn: the
 // gradient by Wd is not 0).
+// SPEEDBONUS (default 0; needs LIMIT): a win is worth 1 + b and the loss -b, b = SPEEDBONUS for a game over in at most
+// LIMIT/3 turns, 0 at LIMIT turns (and for a game cut at LIMIT), linear between. The targets are rescaled to [0, 1]
+// as (r + SPEEDBONUS) / (1 + 2 SPEEDBONUS), so the net's value is that rescaled reward instead of a win probability.
 // VSGREEDY (Mixed, default 1): 0 = after the warm-up, pure self-play instead of every second game
 // against the greedy baseline.
 // GAMMA (default 1): per-step discount of the TD target toward 0.5 (a game that never ends is a draw),
@@ -45,6 +48,7 @@
 // games (before a roll or a walk) is trained toward its depth-n expectimax value (Engine::node, full
 // window; n = 2 looks one roll further than the net), discounted toward 0.5 by GAMMA.
 #include "core.h"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -132,7 +136,15 @@ static std::string toJSON(const Net& n) {
   return s + b;
 }
 
-struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; double temp; bool tempFix; int opening; };
+struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; double temp; bool tempFix; int opening; double speedBonus; };
+// White's target for a finished game (SPEEDBONUS above)
+template <int H> static double finalResult(const Pos<H>& s, const Opts& o) {
+  if (s.limitHit && o.limitDraw) return 0.5;
+  double r = s.winner == 0 ? 1 : 0, B = o.speedBonus;
+  if (B <= 0 || !o.turnLimit) return r;
+  double third = o.turnLimit / 3.0, b = s.limitHit ? 0 : B * std::clamp((o.turnLimit - s.turnCount) / (o.turnLimit - third), 0.0, 1.0);
+  return (r + (s.winner == 0 ? b : -b) + B) / (1 + 2 * B);
+}
 struct Run { // everything main sets up before the training proper
   int rule, PRE, WORKERS, VSGREEDY, LIMITDRAW, SEARCH, TRAIN_DEPTH;
   double EXPLORE, TEMP, TEMPEND;
@@ -144,6 +156,7 @@ struct Run { // everything main sets up before the training proper
   Net* net;
   long REPLAY, KEEP; int REPS; double ALPHAEND; // replay-buffer mode (REPLAY = games per cycle, 0 = off)
   int OPENING;
+  double SPEEDBONUS;
 };
 struct Result { int plies, steps; double sqErr; bool capped; };
 
@@ -188,7 +201,7 @@ template <int H> static Result selfPlayGame(Engine<H>& g, TD<H>& td, Pos<H>& s, 
     double nw;
     bool fix = o.tempFix && off && firstP < 2; // a greedy-baseline first segment has no best value to back up
     if (fix) nw = 0.5 + o.gamma * ((firstP == 0 ? firstBest : 1 - firstBest) - 0.5);
-    else if (s.phase == OVER) nw = s.limitHit && o.limitDraw ? 0.5 : s.winner == 0 ? 1 : 0;
+    else if (s.phase == OVER) nw = finalResult(s, o);
     else { double y2 = td.forward(g, s); nw = 0.5 + o.gamma * ((s.turn == 0 ? y2 : 1 - y2) - 0.5); }
     sqErr += (nw - cur) * (nw - cur);
     steps++;
@@ -291,7 +304,7 @@ int main(int argc, char** argv) {
     for (int j = 0; j < net->h; j++) { net->b1[j] = 0; net->W2[j] = (float)u(rnd); }
     net->b2 = 0;
   }
-  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, getenv("TEMPEND") ? atof(getenv("TEMPEND")) : getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, envInt("TEMPFIX", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA, envInt("OPENING", 0) };
+  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, getenv("TEMPEND") ? atof(getenv("TEMPEND")) : getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, envInt("TEMPFIX", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA, envInt("OPENING", 0), getenv("SPEEDBONUS") ? atof(getenv("SPEEDBONUS")) : 0.0 };
   switch (net->h) {
 #define BG_RUN(n) case n: return R.REPLAY ? runReplay<n>(R) : run<n>(R);
     BG_SIZES(BG_RUN)
@@ -354,7 +367,7 @@ template <int H> static int run(const Run& R) {
     }
   };
 
-  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE, R.TEMP, R.TEMPFIX != 0, R.OPENING };
+  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE, R.TEMP, R.TEMPFIX != 0, R.OPENING, R.SPEEDBONUS };
   std::atomic<long> counter { startGame };
   std::mutex mtx;
   std::condition_variable cv;
@@ -483,7 +496,7 @@ template <int H> static void recordGame(Engine<H>& g, Pos<H>& s, int greedySide,
     }
   }
   gr.capped = s.phase != OVER;
-  gr.z = gr.capped ? 0.5f : s.limitHit && o.limitDraw ? 0.5f : s.winner == 0 ? 1.f : 0.f;
+  gr.z = gr.capped ? 0.5f : (float)finalResult(s, o);
   if (s.limitHit) gr.capped = true;
 }
 
@@ -545,7 +558,7 @@ template <int H> static int runReplay(const Run& R) {
     for (auto& r : rows) { if (!all.empty()) all += ","; all += r; }
     writeFile(METRICS, "window.METRICS_" + RULE_UP + "=[" + all + "];\n");
   };
-  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE, 0, false, R.OPENING };
+  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE, 0, false, R.OPENING, R.SPEEDBONUS };
   std::vector<GameRec> buf;
   buf.reserve(R.KEEP);
   long bufNext = 0, games = startGame;

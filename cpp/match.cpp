@@ -6,6 +6,7 @@
 // the moves and the dice drawn from the pair's seed, so both games of a pair are identical up to the colours.
 // Also prints the pairs won 2-0 / lost 0-2 / split.
 #include "core.h"
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -56,6 +57,7 @@ static Net* load(const char* f) {
 }
 
 std::atomic<int> unfinished{0};
+std::atomic<long> turns{0}, games{0}; // game length in turns (throws), finished games
 const int LIMIT = getenv("LIMIT") ? atoi(getenv("LIMIT")) : 200;
 const int OPENING = getenv("OPENING") ? atoi(getenv("OPENING")) : 0;
 
@@ -102,6 +104,7 @@ template <int HA, int HB> int game(Engine<HA>& ea, Engine<HB>& eb, uint64_t seed
     for (int k = 0; k < len && (pa.phase == MOVE || pa.phase == WALK); k++) { ea.applyMove(pa, path[k]); eb.applyMove(pb, path[k]); }
   }
   if (pa.limitHit && getenv("LIMITDRAW")) { unfinished++; return -1; } // cut at LIMIT: a draw
+  turns += pa.turnCount; games++;
   return pa.winner;
 }
 
@@ -133,6 +136,7 @@ template <int HA, int HB> void run(Net* A, Net* B, int pairs, int threads) {
   double q = won + lost ? (double)won / (won + lost) : 0.5, qse = won + lost ? std::sqrt(q * (1 - q) / (won + lost)) : 0;
   printf("pairs: A won %d, lost %d, split %d   A's share of decided pairs %.4f +- %.4f\n", won, lost, pairs - won - lost, q, qse);
   printf("A score %.4f +- %.4f   Elo %+.1f +- %.1f   (%d pairs, H %d vs %d, %d unfinished)\n", m, se, elo(m), (elo(m + se) - elo(m - se)) / 2, pairs, HA, HB, unfinished.load());
+  printf("mean game length %.1f turns (finished games)\n", (double)turns / std::max(1L, games.load()));
 }
 
 int main(int argc, char** argv) {

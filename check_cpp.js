@@ -140,6 +140,30 @@ for (const rule of ['paul', 'rene', 'mixed']) {
     }
   }
 }
+// ---------------------------------------------------------------- deep net (residual layers): values and searches
+{
+  const file = __dirname + '/weights_mixed_big.json';
+  if (fs.existsSync(file)) {
+    const net = new L.Net(JSON.parse(fs.readFileSync(file)));
+    if (!net.deep) fail('weights_mixed_big.json has no residual layers');
+    for (const s0 of samples.mixed.slice(0, 6)) {
+      const s = L.cloneState(s0);
+      C.useNet('mixed', net); ex.tdInit(RULE_ID.mixed, 0.7); C.load(s);
+      const vf = ex.tdForward(), ve = net.forward(L.features(s));
+      positions++;
+      if (Math.abs(vf - ve) > TOL) fail(`deep forward ${vf} vs ${ve}`);
+      if (s.phase === 'roll') BG.roll(s);
+      if (s.phase !== 'move' && s.phase !== 'walk') continue;
+      for (const e of L.endStates(s).slice(0, 3)) for (const depth of [1, 2]) {
+        const ref = A.evalStateJS(net, e.s, s.turn, depth);
+        C.useNet('mixed', net); C.load(e.s);
+        const v = ex.evalNode(s.turn, depth, 1);
+        searches++;
+        if (Math.abs(v - ref) > TOL) fail(`deep depth ${depth}: core ${v} vs analysis ${ref}`);
+      }
+    }
+  }
+}
 // ---------------------------------------------------------------- pool.js (inline here: node has no Web Workers)
 // its split root search = the core's best plan; its value of one end = the core's exact value
 (async () => {

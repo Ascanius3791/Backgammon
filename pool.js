@@ -58,6 +58,7 @@
       if (this.nets[job.rule] !== job.net) {
         const n = job.net;
         m.net = { W1: n.W1, b1: n.b1, W2: n.W2, b2: n.b2 };
+        if (n.deep) { m.net.Wd = n.Wd; m.net.bd = n.bd; }
         this.nets[job.rule] = n;
       }
       this.w.postMessage(m);

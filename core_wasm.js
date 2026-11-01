@@ -26,6 +26,13 @@
       f32(ex.b1Ptr(r), H).set(net.b1);
       f32(ex.w2Ptr(r), H).set(net.W2);
       f32(ex.b2Ptr(r), 1)[0] = b2;
+      const deep = net.bd ? net.bd.length / H : 0; // residual layers (bot.js Net)
+      if (!ex.setDeep) { if (deep) throw new Error('bgcore.wasm is too old for deep nets'); }
+      else if (!ex.setDeep(r, deep)) throw new Error('bgcore.wasm has no room for ' + deep + ' residual layers');
+      for (let k = 0; k < deep; k++) {
+        f32(ex.wdPtr(r, k), H * H).set(net.Wd.subarray ? net.Wd.subarray(k * H * H, (k + 1) * H * H) : net.Wd.slice(k * H * H, (k + 1) * H * H));
+        f32(ex.bdPtr(r, k), H).set(net.bd.subarray ? net.bd.subarray(k * H, (k + 1) * H) : net.bd.slice(k * H, (k + 1) * H));
+      }
       loaded[r] = net;
     }
 

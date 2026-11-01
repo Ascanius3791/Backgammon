@@ -29,7 +29,8 @@
     return { idx, val, bias };
   }
 
-  // One hidden layer of this.H units. heads = 1: output = P(side to roll wins) (Paul, Rene).
+  // One hidden layer of this.H units, then this.deep residual layers h += tanh(Wd h + bd) (Wd: H rows of H
+  // numbers per layer, input i's weights to all units; trained by cpp/train.cpp DEEP only). heads = 1: output = P(side to roll wins) (Paul, Rene).
   // heads = 2 (Mixed): output 0 = P(side to roll wins), output 1 = P(the other side wins); a game that
   // is never finished counts as a loss for both, so stalling is never better than playing on.
   class Net {
@@ -44,6 +45,11 @@
       this.b2b = new Float64Array(1);
       this.h = new Float64Array(nh);
       this.y = [0.5, 0.5];
+      this.deep = w && w.bd ? w.bd.length / nh : 0;
+      this.Wd = new Float64Array(this.deep * nh * nh);
+      this.bd = new Float64Array(this.deep * nh);
+      this.z = new Float64Array(nh);
+      if (this.deep) { this.Wd.set(w.Wd); this.bd.set(w.bd); }
       if (w) {
         this.W1.set(w.W1); this.b1.set(w.b1); this.W2.set(w.W2); this.b2[0] = w.b2;
         if (w.W2b) { this.W2b.set(w.W2b); this.b2b[0] = w.b2b; }
@@ -60,13 +66,24 @@
         for (let j = 0; j < H; j++) h[j] += v * W1[o + j];
       }
       let z = this.b2[0] + (f.bias || 0), z2 = this.b2b[0] - (f.bias || 0);
-      for (let j = 0; j < H; j++) { h[j] = Math.tanh(h[j]); z += h[j] * this.W2[j]; z2 += h[j] * this.W2b[j]; }
+      if (this.deep) {
+        for (let j = 0; j < H; j++) h[j] = Math.tanh(h[j]);
+        const zz = this.z;
+        for (let k = 0; k < this.deep; k++) {
+          const W = this.Wd, o = k * H * H;
+          for (let j = 0; j < H; j++) zz[j] = this.bd[k * H + j];
+          for (let i = 0; i < H; i++) { const v = h[i], oi = o + i * H; for (let j = 0; j < H; j++) zz[j] += v * W[oi + j]; }
+          for (let j = 0; j < H; j++) h[j] += Math.tanh(zz[j]);
+        }
+        for (let j = 0; j < H; j++) { z += h[j] * this.W2[j]; z2 += h[j] * this.W2b[j]; }
+      } else for (let j = 0; j < H; j++) { h[j] = Math.tanh(h[j]); z += h[j] * this.W2[j]; z2 += h[j] * this.W2b[j]; }
       this.y[0] = 1 / (1 + Math.exp(-z));
       this.y[1] = this.heads === 2 ? 1 / (1 + Math.exp(-z2)) : 1 - this.y[0];
       return this.y[0];
     }
     // adds sign * d(output k)/dw to the trace E; call right after forward(f)
     addGradHead(f, k, sign, E) {
+      if (this.deep) throw new Error('deep nets are trained by cpp/train.cpp only');
       const y = this.y[k], dz = sign * y * (1 - y), h = this.h, H = this.H;
       const W2 = k ? this.W2b : this.W2, EW2 = k ? E.W2b : E.W2, Eb2 = k ? E.b2b : E.b2;
       Eb2[0] += dz;
@@ -82,6 +99,7 @@
       const r = (a) => Array.from(a, (x) => Math.round(x * 1e5) / 1e5);
       const o = { W1: r(this.W1), b1: r(this.b1), W2: r(this.W2), b2: this.b2[0] };
       if (this.heads === 2) { o.W2b = r(this.W2b); o.b2b = this.b2b[0]; }
+      if (this.deep) { o.Wd = r(this.Wd); o.bd = r(this.bd); }
       return o;
     }
   }

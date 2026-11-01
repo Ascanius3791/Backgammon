@@ -52,6 +52,14 @@ EXPORT(w1Ptr) float* w1Ptr(int r) { return nets[r].W1; }
 EXPORT(b1Ptr) float* b1Ptr(int r) { return nets[r].b1; }
 EXPORT(w2Ptr) float* w2Ptr(int r) { return nets[r].W2; }
 EXPORT(b2Ptr) float* b2Ptr(int r) { return &nets[r].b2; }
+EXPORT(wdPtr) float* wdPtr(int r, int k) { return nets[r].Wd[k]; }
+EXPORT(bdPtr) float* bdPtr(int r, int k) { return nets[r].bd[k]; }
+// residual layers of nets[r] (core.h Net::deep); 0 if more than the build has room for
+EXPORT(setDeep) int setDeep(int r, int d) {
+  if (d < 0 || d > DEEP_MAX) return 0;
+  nets[r].deep = d;
+  return 1;
+}
 // shape of nets[r]: inputs and hidden units (0 if h is not a compiled size); weights are laid out by it
 EXPORT(setShape) int setShape(int r, int nin, int h) {
   if (!hiddenOk(h)) return 0;
