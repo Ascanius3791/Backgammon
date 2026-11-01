@@ -19,6 +19,15 @@
 // candidate is scored after the opponent's forced walk of that throw (2-ply minimax). 1 = scored as if the
 // opponent rolled next, ignoring the walk: several times faster, meant for pretraining only. The evaluation
 // games against the greedy baseline always use depth 2.
+// EXPLORE (default 0): chance per segment (a throw or a walk, either side) that the net's side plays random moves
+// instead of its best, so positions the net rates badly still get visited and corrected. Without it, a move whose
+// walk search hits one falsely low position is never played, and the error is never corrected.
+// REPLAY (Mixed, games per cycle; 0 = off, the online TD above): replay-buffer training. Cycles of
+//   1. play REPLAY games with the frozen net (workers, as in the online mode, EXPLORE included) and append them to a
+//      buffer of the last KEEP games (positions before every roll, and the result);
+//   2. REPS * REPLAY game visits on games drawn at random from the buffer: the lambda-return of every position is
+//      computed with the current net (V(next) bootstrap, GAMMA as above), then the position is moved toward it by
+//      ALPHA * (return - V) (ALPHA falls linearly to ALPHAEND over TIME). The weights change only in this phase.
 // SEARCH (default 0): n >= 2 = search distillation instead of TD(lambda): every position of the self-play
 // games (before a roll or a walk) is trained toward its depth-n expectimax value (Engine::node, full
 // window; n = 2 looks one roll further than the net), discounted toward 0.5 by GAMMA.
@@ -102,14 +111,16 @@ static std::string toJSON(const Net& n) {
   return s + b;
 }
 
-struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; };
+struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; };
 struct Run { // everything main sets up before the training proper
   int rule, PRE, WORKERS, VSGREEDY, LIMITDRAW, SEARCH, TRAIN_DEPTH;
+  double EXPLORE;
   long GAMES, EVAL_EVERY, LOG_EVERY;
   double ALPHA, LAMBDA, TIME, GAMMA;
   int TURN_LIMIT, MAX_PLIES;
   std::string dir, ruleName, RULE_UP, FILE_W, METRICS;
   Net* net;
+  long REPLAY, KEEP; int REPS; double ALPHAEND; // replay-buffer mode (REPLAY = games per cycle, 0 = off)
 };
 struct Result { int plies, steps; double sqErr; bool capped; };
 
@@ -129,7 +140,9 @@ template <int H> static Result selfPlayGame(Engine<H>& g, TD<H>& td, Pos<H>& s, 
     // The net only ever sees positions with nobody holding dice (no walk inputs; the walk is searched).
     if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
     while (s.phase == MOVE || s.phase == WALK) {
-      if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr); else g.playBest(s, nullptr);
+      if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr);
+      else if (o.explore > 0 && g.rng.next() < o.explore) g.playRandom(s, nullptr);
+      else g.playBest(s, nullptr);
     }
 
     double nw;
@@ -165,6 +178,7 @@ template <int H> static Result searchGame(Engine<H>& g, TD<H>& td, Pos<H>& s, co
 }
 
 template <int H> static int run(const Run& R);
+template <int H> static int runReplay(const Run& R);
 
 int main(int argc, char** argv) {
   initTables();
@@ -216,9 +230,9 @@ int main(int argc, char** argv) {
     for (int j = 0; j < net->h; j++) { net->b1[j] = 0; net->W2[j] = (float)u(rnd); }
     net->b2 = 0;
   }
-  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get() };
+  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA };
   switch (net->h) {
-#define BG_RUN(n) case n: return run<n>(R);
+#define BG_RUN(n) case n: return R.REPLAY ? runReplay<n>(R) : run<n>(R);
     BG_SIZES(BG_RUN)
   }
   return 1;
@@ -279,7 +293,7 @@ template <int H> static int run(const Run& R) {
     }
   };
 
-  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH };
+  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE };
   std::atomic<long> counter { startGame };
   std::mutex mtx;
   std::condition_variable cv;
@@ -363,6 +377,175 @@ template <int H> static int run(const Run& R) {
     acc.game = startGame + done;
     acc.eval = true;
     emit(acc);
+  }
+  save();
+  return 0;
+}
+
+// ---------------------------------------------------------------- replay buffer
+struct Rec { int8_t b[25]; uint8_t bar[2], off[2], turn; };
+struct GameRec { std::vector<Rec> pos; float z = 0.5f; bool capped = false; };
+
+// like selfPlayGame, but the net is frozen: every position before a roll is recorded instead of trained on
+template <int H> static void recordGame(Engine<H>& g, Pos<H>& s, int greedySide, const Opts& o, GameRec& gr) {
+  g.reset(s);
+  gr.pos.clear();
+  int plies = 0;
+  while (s.phase != OVER && plies++ < o.maxPlies) {
+    Rec r;
+    for (int i = 0; i < 25; i++) r.b[i] = s.b[i];
+    r.bar[0] = s.bar[0]; r.bar[1] = s.bar[1]; r.off[0] = s.off[0]; r.off[1] = s.off[1]; r.turn = s.turn;
+    gr.pos.push_back(r);
+    if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
+    while (s.phase == MOVE || s.phase == WALK) {
+      if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr);
+      else if (o.explore > 0 && g.rng.next() < o.explore) g.playRandom(s, nullptr);
+      else g.playBest(s, nullptr);
+    }
+  }
+  gr.capped = s.phase != OVER;
+  gr.z = gr.capped ? 0.5f : s.limitHit && o.limitDraw ? 0.5f : s.winner == 0 ? 1.f : 0.f;
+  if (s.limitHit) gr.capped = true;
+}
+
+// position of a record with everything the net's inputs need (no dice, no accumulators)
+template <int H> static void unpack(const Rec& r, Pos<H>& s) {
+  for (int i = 0; i < 25; i++) s.b[i] = r.b[i];
+  s.bar[0] = r.bar[0]; s.bar[1] = r.bar[1]; s.off[0] = r.off[0]; s.off[1] = r.off[1]; s.turn = r.turn; s.phase = ROLL;
+  s.pip[0] = (int16_t)(25 * r.bar[0]); s.pip[1] = (int16_t)(25 * r.bar[1]);
+  for (int a = 1; a <= 24; a++) { if (s.b[a] > 0) s.pip[0] += a * s.b[a]; if (s.b[a] < 0) s.pip[1] += (25 - a) * -s.b[a]; }
+}
+
+// One visit: lambda-returns of the whole game with the current net, then one pass of moving each position toward
+// its return. Returns the sum of squared errors before the update and the number of positions.
+template <int H> static void visitGame(Engine<H>& g, TD<H>& td, const GameRec& gr, double alpha, double lambda, double gamma, std::vector<float>& G, double& sq, long& n) {
+  const int T = (int)gr.pos.size();
+  static thread_local Pos<H> s;
+  G.assign(T, 0.f);
+  float next = gr.z, gnext = gr.z; // value and return of the position after t (White's chance)
+  for (int t = T - 1; t >= 0; t--) {
+    G[t] = (float)((1 - lambda) * next + lambda * gnext);
+    gnext = G[t];
+    unpack(gr.pos[t], s);
+    double y = td.forward(g, s);
+    double vw = s.turn == 0 ? y : 1 - y;
+    next = (float)(0.5 + gamma * (vw - 0.5)); // what the position before t bootstraps from
+  }
+  for (int t = 0; t < T; t++) {
+    unpack(gr.pos[t], s);
+    double y = td.forward(g, s), tgt = s.turn == 0 ? G[t] : 1 - G[t];
+    sq += (tgt - y) * (tgt - y); n++;
+    td.trace(1);
+    td.update(alpha * (tgt - y));
+  }
+}
+
+template <int H> static int runReplay(const Run& R) {
+  using Engine = bg::Engine<H>;
+  using TD = bg::TD<H>;
+  using Pos = bg::Pos<H>;
+  const int rule = R.rule, WORKERS = R.WORKERS;
+  Net* net = R.net;
+  const std::string &dir = R.dir, &FILE_W = R.FILE_W, &METRICS = R.METRICS, &RULE_UP = R.RULE_UP;
+  const char* ruleName = R.ruleName.c_str();
+  std::string oldRows;
+  long startGame = 0;
+  {
+    std::string m = readFile(METRICS);
+    size_t a = m.find('['), b = m.rfind(']');
+    if (a != std::string::npos && b != std::string::npos && b > a) oldRows = m.substr(a + 1, b - a - 1);
+    size_t g = oldRows.rfind("\"game\":");
+    if (g != std::string::npos) startGame = atol(oldRows.c_str() + g + 7);
+  }
+  std::vector<std::string> rows;
+  auto save = [&]() {
+    std::string w = toJSON(*net);
+    writeFile(FILE_W, w);
+    writeFile(dir + "weights_" + ruleName + ".js", "window.BOT_WEIGHTS_" + RULE_UP + "=" + w + ";\n");
+    std::string all = oldRows;
+    for (auto& r : rows) { if (!all.empty()) all += ","; all += r; }
+    writeFile(METRICS, "window.METRICS_" + RULE_UP + "=[" + all + "];\n");
+  };
+  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE };
+  std::vector<GameRec> buf;
+  buf.reserve(R.KEEP);
+  long bufNext = 0, games = startGame;
+  const auto t0 = std::chrono::steady_clock::now();
+  auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
+  auto timeUp = [&]() { return R.TIME > 0 && elapsed() > R.TIME; };
+  std::random_device rd;
+  std::mutex mtx;
+  for (int cycle = 1; !timeUp(); cycle++) {
+    // 1. play with the frozen net
+    const double tg0 = elapsed();
+    std::atomic<long> made { 0 };
+    long plies = 0, cappedN = 0;
+    {
+      std::vector<std::thread> th;
+      for (int k = 0; k < WORKERS; k++) {
+        uint64_t seed = ((uint64_t)rd() << 32 | rd()) | 1;
+        th.emplace_back([&, seed]() {
+          auto g = std::make_unique<Engine>();
+          Pos s;
+          g->setRule(rule, rule == MIXED ? o.turnLimit : 0, net);
+          g->rng.s = seed;
+          g->moveDepth = R.TRAIN_DEPTH;
+          GameRec gr;
+          for (;;) {
+            if (timeUp()) break;
+            long i = made++;
+            if (i >= R.REPLAY) break;
+            long gi = startGame + (long)cycle * R.REPLAY + i; // alternates greedy/self-play games as the online mode does
+            bool mix = rule == MIXED && o.vsGreedy && gi % 2 == 0;
+            recordGame<H>(*g, s, mix ? (gi % 4 == 0 ? 0 : 1) : -1, o, gr);
+            std::lock_guard<std::mutex> lk(mtx);
+            plies += (long)gr.pos.size(); cappedN += gr.capped;
+            if ((long)buf.size() < R.KEEP) buf.push_back(gr); else buf[bufNext++ % R.KEEP] = gr;
+          }
+        });
+      }
+      for (auto& t : th) t.join();
+    }
+    const long nNew = std::min(made.load(), R.REPLAY);
+    games += nNew;
+    const double tg1 = elapsed();
+    // 2. train on the buffer (Hogwild over the workers)
+    std::atomic<long> visits { 0 };
+    const long total = R.REPS * nNew;
+    double sq = 0;
+    long cnt = 0, vis = 0;
+    {
+      std::vector<std::thread> th;
+      for (int k = 0; k < WORKERS; k++) {
+        uint64_t seed = ((uint64_t)rd() << 32 | rd()) | 1;
+        th.emplace_back([&, seed]() {
+          auto g = std::make_unique<Engine>();
+          auto td = std::make_unique<TD>();
+          g->setRule(rule, 0, net);
+          td->init(net, 0);
+          Rng rng; rng.s = seed;
+          std::vector<float> G;
+          double lsq = 0; long ln = 0, lv = 0;
+          while (!timeUp()) {
+            if (visits++ >= total) break;
+            double alpha = R.TIME > 0 ? R.ALPHA + (R.ALPHAEND - R.ALPHA) * std::min(1.0, elapsed() / R.TIME) : R.ALPHA;
+            const GameRec& gr = buf[(size_t)(rng.next() * buf.size())];
+            visitGame<H>(*g, *td, gr, alpha, R.LAMBDA, R.GAMMA, G, lsq, ln); lv++;
+          }
+          std::lock_guard<std::mutex> lk(mtx);
+          sq += lsq; cnt += ln; vis += lv;
+        });
+      }
+      for (auto& t : th) t.join();
+    }
+    const double tg2 = elapsed();
+    char row[256];
+    snprintf(row, sizeof row, "{\"game\":%ld,\"tdErr\":%.8g,\"plies\":%.8g,\"capped\":%.8g}", games, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), (double)cappedN / std::max(nNew, 1L));
+    rows.push_back(row);
+    save();
+    printf("cycle %d  %.0fs  games %ld (buffer %zu)  play %.0fs (%.0f games/s)  train %.0fs (%ld visits)  tdErr %.4f  plies %.0f  capped %.0f%%\n", cycle, tg2, games, buf.size(),
+           tg1 - tg0, nNew / std::max(tg1 - tg0, 1e-9), tg2 - tg1, vis, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), 100.0 * cappedN / std::max(nNew, 1L));
+    fflush(stdout);
   }
   save();
   return 0;
