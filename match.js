@@ -2,12 +2,15 @@
 // sequence and swaps the colours. engine.js is the arbiter; each side picks its moves with its own fast.js.
 //   node match.js [pairs] [workers]
 //   NEW=weights_mixed.json  OLD_DIR=../Bagammon  OLD=weights_mixed.json  LIMIT=200
+//   NEWDEPTH=n / OLDDEPTH=n: lucknodes of that side's search (default 1; 2+ runs the wasm core's bestPlan, which needs a 246-input net)
+//   OFFSET=n: first pair number (to run a long match as several short processes)
 //   SECS=n: play for n seconds instead of a fixed number of pairs (pairs is then ignored); QUIET=1: only the final line
 // OLD_DIR is a checkout whose fast.js/bot.js/weights match the old net (e.g. main with the 253-input Mixed net).
 const fs = require('fs');
 const path = require('path');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const BG = require('./engine.js');
+const CW = require('./core_wasm.js');
 
 const toMove = (m) => {
   const f = m & 31, t = (m >> 5) & 31;
@@ -27,6 +30,10 @@ function play(throws, newIsWhite, gN, gO, limit) {
   for (let steps = 0; s.phase !== 'over' && steps < 20000; steps++) {
     if (s.phase === 'roll') { BG.roll(s, throws[r++ % throws.length]); continue; }
     const g = (s.turn === 0) === newIsWhite ? gN : gO;
+    if (g.luck) { // multi-lucknode side: the wasm core searches whole turns up to the next dice roll
+      for (const m of CW.bestPlan('mixed', g.net, s, g.luck).path) if (s.phase === 'move' || s.phase === 'walk') BG.applyMove(s, m);
+      continue;
+    }
     g.fromEngine(s);
     g.search();
     for (let k = 0; k < g.bestLen && (s.phase === 'move' || s.phase === 'walk'); k++) BG.applyMove(s, toMove(g.bestPath[k]));
@@ -36,9 +43,9 @@ function play(throws, newIsWhite, gN, gO, limit) {
 
 function setup(o) {
   const FN = require('./fast.js'), FO = require(path.resolve(o.oldDir, 'fast.js'));
-  const wN = FN.makeWeights(JSON.parse(fs.readFileSync(o.newFile)));
-  const wO = FO.makeWeights(JSON.parse(fs.readFileSync(o.oldFile)));
-  return { gN: new FN.Game('mixed', wN, { plyLimit: o.limit }), gO: new FO.Game('mixed', wO, { plyLimit: o.limit }) };
+  const jN = JSON.parse(fs.readFileSync(o.newFile)), jO = JSON.parse(fs.readFileSync(o.oldFile));
+  const side = (F, j, luck) => luck > 1 ? { luck, net: j } : new F.Game('mixed', F.makeWeights(j), { plyLimit: o.limit });
+  return { gN: side(FN, jN, o.newDepth), gO: side(FO, jO, o.oldDepth) };
 }
 
 if (!isMainThread) {
@@ -58,6 +65,7 @@ if (!isMainThread) {
     oldDir: process.env.OLD_DIR || '../Bagammon',
     limit: process.env.LIMIT !== undefined ? +process.env.LIMIT : 200,
     secs: +process.env.SECS || 0,
+    newDepth: +process.env.NEWDEPTH || 1, oldDepth: +process.env.OLDDEPTH || 1,
   };
   o.oldFile = path.resolve(o.oldDir, process.env.OLD || 'weights_mixed.json');
   let games = 0, wins = 0, unfinished = 0, limitHit = 0, pairWins = 0, pairLoss = 0, finished = 0;
@@ -70,7 +78,8 @@ if (!isMainThread) {
   };
   for (let w = 0; w < WORKERS; w++) {
     // with SECS, each worker gets its own range of pair numbers (never reached before the deadline)
-    const from = o.secs ? w * 1000000 : Math.floor(PAIRS * w / WORKERS), to = o.secs ? (w + 1) * 1000000 : Math.floor(PAIRS * (w + 1) / WORKERS);
+    const off = +process.env.OFFSET || 0;
+    const from = off + (o.secs ? w * 1000000 : Math.floor(PAIRS * w / WORKERS)), to = off + (o.secs ? (w + 1) * 1000000 : Math.floor(PAIRS * (w + 1) / WORKERS));
     const wk = new Worker(__filename, { workerData: Object.assign({ from, to }, o) });
     wk.on('message', (m) => {
       if (m.done) { if (++finished === WORKERS) report(); return; }

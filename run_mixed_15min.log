@@ -1,0 +1,6 @@
+round 1/6 depth 2  t 160s  games 82647 (total 387263)  new vs old: 161/288 = 55.9% ±5.7  Elo 41 (1..82)  unfinished 0, turn limit 11, pairs won 40 lost 23  8s
+round 2/6 depth 2  t 320s  games 156835 (total 461451)  new vs old: 259/440 = 58.9% ±4.6  Elo 62 (30..96)  unfinished 0, turn limit 5, pairs won 70 lost 31  8s
+round 3/6 depth 2  t 482s  games 222452 (total 527068)  new vs old: 131/236 = 55.5% ±6.3  Elo 38 (-6..84)  unfinished 0, turn limit 7, pairs won 32 lost 19  8s
+round 4/6 depth 2  t 643s  games 289228 (total 593844)  new vs old: 268/428 = 62.6% ±4.6  Elo 90 (56..125)  unfinished 0, turn limit 9, pairs won 81 lost 27  10s
+round 5/6 depth 2  t 803s  games 354223 (total 658839)  new vs old: 285/424 = 67.2% ±4.5  Elo 125 (91..161)  unfinished 0, turn limit 10, pairs won 98 lost 25  8s
+round 6/6 depth 2  t 964s  games 413752 (total 718368)  new vs old: 247/372 = 66.4% ±4.8  Elo 118 (82..157)  unfinished 0, turn limit 8, pairs won 82 lost 21  8s
