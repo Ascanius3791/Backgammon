@@ -819,6 +819,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight' && live) { e.preventDefault(); view(viewIdx + 1); }
   else if (e.key === 'Escape') exitView();
   else if (e.key === 'Enter' && pause && pause.ack && !live) { e.preventDefault(); ackSkip(); }
+  else if (e.key === 'Enter' && live && $('botGo').style.display !== 'none') { e.preventDefault(); $('botGo').click(); } // Continue
 });
 
 // ---- eval bar: White's winning chance on the position, and the loss of the last move ----
