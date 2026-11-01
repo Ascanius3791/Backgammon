@@ -19,8 +19,8 @@
 // GAMMA (default 1): per-step discount of the TD target toward 0.5 (a game that never ends is a draw),
 // target = 0.5 + GAMMA * (V(next) - 0.5). Below 1, a win now beats the same win later, so a winning side
 // stops stalling (e.g. walking a runner back and forth behind a prime instead of coming home).
-// LIMITDRAW (Mixed, default 0): 1 = a game cut at LIMIT counts as a draw (target 0.5) instead of a win for
-// the pip leader, so the side that is ahead only scores by actually bearing off.
+// LIMITDRAW (Mixed, default 1): a game cut at LIMIT is a draw (target 0.5, and the searches value the cut as 1/2),
+// so the side that is ahead only scores by actually bearing off. 0 = the old rule: the pip leader wins at LIMIT.
 // TRAIN_DEPTH (Mixed, default 2): how the self-play games choose their own throw. 2 = the full design: each
 // candidate is scored after the opponent's forced walk of that throw (2-ply minimax). 1 = scored as if the
 // opponent rolled next, ignoring the walk: several times faster, meant for pretraining only. The evaluation
@@ -44,6 +44,9 @@
 // k random segments (throws and walks, either side), k drawn uniformly from 0..OPENING, and is only trained on
 // (online) or recorded (REPLAY) from the first position after them. So the positions after opening moves the net
 // never plays itself get visited and corrected, while the rest of the game is played as usual.
+// BSET (file from cpp/disagree.cpp, one position per line) and BFRAC (default 0.1): a game starts from a random
+// position of the set with chance BFRAC instead of the normal start (no random opening then), and is played and
+// trained on (or recorded) from there as usual. Meant for positions the nets disagree on, so the hard ones get visited.
 // SEARCH (default 0): n >= 2 = search distillation instead of TD(lambda): every position of the self-play
 // games (before a roll or a walk) is trained toward its depth-n expectimax value (Engine::node, full
 // window; n = 2 looks one roll further than the net), discounted toward 0.5 by GAMMA.
@@ -136,7 +139,35 @@ static std::string toJSON(const Net& n) {
   return s + b;
 }
 
-struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; double temp; bool tempFix; int opening; double speedBonus; };
+struct Rec { int8_t b[25]; uint8_t bar[2], off[2], turn; };
+struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; double temp; bool tempFix; int opening; double speedBonus; const std::vector<Rec>* bset; double bfrac; };
+// BSET: the positions of a disagreement file (b[0..24] bar0 bar1 off0 off1 turn, then anything)
+static std::vector<Rec> readBSet(const char* f) {
+  std::vector<Rec> out;
+  std::ifstream in(f);
+  if (!in) { fprintf(stderr, "BSET: cannot read %s\n", f); exit(1); }
+  for (std::string line; std::getline(in, line);) {
+    std::istringstream ls(line);
+    int v[30], i = 0;
+    while (i < 30 && ls >> v[i]) i++;
+    if (i < 30) continue;
+    Rec r;
+    for (int k = 0; k < 25; k++) r.b[k] = (int8_t)v[k];
+    r.bar[0] = v[25]; r.bar[1] = v[26]; r.off[0] = v[27]; r.off[1] = v[28]; r.turn = v[29];
+    out.push_back(r);
+  }
+  return out;
+}
+// the game's start: with chance o.bfrac a random BSET position (true), else the normal start
+template <int H> static bool beginGame(Engine<H>& g, Pos<H>& s, const Opts& o) {
+  g.reset(s);
+  if (!o.bset || o.bset->empty() || g.rng.next() >= o.bfrac) return false;
+  const Rec& r = (*o.bset)[(size_t)(g.rng.next() * o.bset->size())];
+  for (int i = 0; i < 25; i++) s.b[i] = r.b[i];
+  s.bar[0] = r.bar[0]; s.bar[1] = r.bar[1]; s.off[0] = r.off[0]; s.off[1] = r.off[1]; s.turn = r.turn;
+  g.refresh(s);
+  return true;
+}
 // White's target for a finished game (SPEEDBONUS above)
 template <int H> static double finalResult(const Pos<H>& s, const Opts& o) {
   if (s.limitHit && o.limitDraw) return 0.5;
@@ -157,16 +188,17 @@ struct Run { // everything main sets up before the training proper
   long REPLAY, KEEP; int REPS; double ALPHAEND; // replay-buffer mode (REPLAY = games per cycle, 0 = off)
   int OPENING;
   double SPEEDBONUS;
+  const std::vector<Rec>* BSET; double BFRAC;
 };
-struct Result { int plies, steps; double sqErr; bool capped; };
+struct Result { int plies, steps; double sqErr; bool capped, fromB; };
 
 // greedySide: 2 = the greedy baseline plays both sides, 0/1 = it plays that side, -1 = pure self-play
 template <int H> static Result selfPlayGame(Engine<H>& g, TD<H>& td, Pos<H>& s, int greedySide, const Opts& o) {
-  g.reset(s);
+  bool fromB = beginGame(g, s, o);
   td.clear();
   int plies = 0, steps = 0;
   double sqErr = 0, cur = 0;
-  int opening = o.opening ? (int)(g.rng.next() * (o.opening + 1)) : 0; // random segments still to play
+  int opening = o.opening && !fromB ? (int)(g.rng.next() * (o.opening + 1)) : 0; // random segments still to play
   while (s.phase != OVER && plies++ < o.maxPlies) {
     if (opening) { // random opening: played, not trained on
       if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
@@ -210,7 +242,7 @@ template <int H> static Result selfPlayGame(Engine<H>& g, TD<H>& td, Pos<H>& s, 
   }
   bool capped = s.phase != OVER;
   if (capped) td.update(o.alpha * (0.5 - cur)); // never finished: a draw
-  return { plies, steps, sqErr, capped || s.limitHit };
+  return { plies, steps, sqErr, capped || s.limitHit, fromB };
 }
 
 // search distillation: a self-play game (net, 1-ply) whose positions are each trained toward their
@@ -230,7 +262,7 @@ template <int H> static Result searchGame(Engine<H>& g, TD<H>& td, Pos<H>& s, co
     if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
     if (s.phase == MOVE || s.phase == WALK) g.playBest(s, nullptr);
   }
-  return { plies, steps, sqErr, s.phase != OVER || s.limitHit };
+  return { plies, steps, sqErr, s.phase != OVER || s.limitHit, false };
 }
 
 template <int H> static int run(const Run& R);
@@ -304,7 +336,11 @@ int main(int argc, char** argv) {
     for (int j = 0; j < net->h; j++) { net->b1[j] = 0; net->W2[j] = (float)u(rnd); }
     net->b2 = 0;
   }
-  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, getenv("TEMPEND") ? atof(getenv("TEMPEND")) : getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, envInt("TEMPFIX", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA, envInt("OPENING", 0), getenv("SPEEDBONUS") ? atof(getenv("SPEEDBONUS")) : 0.0 };
+  static std::vector<Rec> bset;
+  if (getenv("BSET")) bset = readBSet(getenv("BSET"));
+  const Run R0 { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 1), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, getenv("TEMPEND") ? atof(getenv("TEMPEND")) : getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, envInt("TEMPFIX", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA, envInt("OPENING", 0), getenv("SPEEDBONUS") ? atof(getenv("SPEEDBONUS")) : 0.0, nullptr, getenv("BFRAC") ? atof(getenv("BFRAC")) : 0.1 };
+  Run R = R0;
+  if (bset.size()) { R.BSET = &bset; printf("BSET: %zu positions, a game starts from one with chance %g\n", bset.size(), R.BFRAC); }
   switch (net->h) {
 #define BG_RUN(n) case n: return R.REPLAY ? runReplay<n>(R) : run<n>(R);
     BG_SIZES(BG_RUN)
@@ -367,7 +403,7 @@ template <int H> static int run(const Run& R) {
     }
   };
 
-  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE, R.TEMP, R.TEMPFIX != 0, R.OPENING, R.SPEEDBONUS };
+  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE, R.TEMP, R.TEMPFIX != 0, R.OPENING, R.SPEEDBONUS, R.BSET, R.BFRAC };
   std::atomic<long> counter { startGame };
   std::mutex mtx;
   std::condition_variable cv;
@@ -386,6 +422,7 @@ template <int H> static int run(const Run& R) {
       auto g = std::make_unique<Engine>();
       auto td = std::make_unique<TD>();
       g->setRule(o.rule, o.rule == MIXED ? o.turnLimit : 0, net);
+      g->limitDraw = o.limitDraw;
       g->rng.s = seed;
       g->moveDepth = R.TRAIN_DEPTH;
       g->needBest = o.tempFix;
@@ -465,15 +502,14 @@ template <int H> static int run(const Run& R) {
 }
 
 // ---------------------------------------------------------------- replay buffer
-struct Rec { int8_t b[25]; uint8_t bar[2], off[2], turn; };
-struct GameRec { std::vector<Rec> pos; float z = 0.5f; bool capped = false; };
+struct GameRec { std::vector<Rec> pos; float z = 0.5f; bool capped = false, fromB = false; };
 
 // like selfPlayGame, but the net is frozen: every position before a roll is recorded instead of trained on
 template <int H> static void recordGame(Engine<H>& g, Pos<H>& s, int greedySide, const Opts& o, GameRec& gr) {
-  g.reset(s);
+  gr.fromB = beginGame(g, s, o);
   gr.pos.clear();
   int plies = 0;
-  int opening = o.opening ? (int)(g.rng.next() * (o.opening + 1)) : 0; // random segments still to play (not recorded)
+  int opening = o.opening && !gr.fromB ? (int)(g.rng.next() * (o.opening + 1)) : 0; // random segments still to play (not recorded)
   while (s.phase != OVER && plies++ < o.maxPlies) {
     if (opening) {
       if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
@@ -558,7 +594,7 @@ template <int H> static int runReplay(const Run& R) {
     for (auto& r : rows) { if (!all.empty()) all += ","; all += r; }
     writeFile(METRICS, "window.METRICS_" + RULE_UP + "=[" + all + "];\n");
   };
-  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE, 0, false, R.OPENING, R.SPEEDBONUS };
+  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE, 0, false, R.OPENING, R.SPEEDBONUS, R.BSET, R.BFRAC };
   std::vector<GameRec> buf;
   buf.reserve(R.KEEP);
   long bufNext = 0, games = startGame;
@@ -571,7 +607,7 @@ template <int H> static int runReplay(const Run& R) {
     // 1. play with the frozen net
     const double tg0 = elapsed();
     std::atomic<long> made { 0 };
-    long plies = 0, cappedN = 0;
+    long plies = 0, cappedN = 0, bGames = 0, bPlies = 0;
     {
       std::vector<std::thread> th;
       for (int k = 0; k < WORKERS; k++) {
@@ -580,6 +616,7 @@ template <int H> static int runReplay(const Run& R) {
           auto g = std::make_unique<Engine>();
           Pos s;
           g->setRule(rule, rule == MIXED ? o.turnLimit : 0, net);
+          g->limitDraw = o.limitDraw;
           g->rng.s = seed;
           g->moveDepth = R.TRAIN_DEPTH;
           GameRec gr;
@@ -592,6 +629,7 @@ template <int H> static int runReplay(const Run& R) {
             recordGame<H>(*g, s, mix ? (gi % 4 == 0 ? 0 : 1) : -1, o, gr);
             std::lock_guard<std::mutex> lk(mtx);
             plies += (long)gr.pos.size(); cappedN += gr.capped;
+            if (gr.fromB) { bGames++; bPlies += (long)gr.pos.size(); }
             if ((long)buf.size() < R.KEEP) buf.push_back(gr); else buf[bufNext++ % R.KEEP] = gr;
           }
         });
@@ -631,12 +669,13 @@ template <int H> static int runReplay(const Run& R) {
       for (auto& t : th) t.join();
     }
     const double tg2 = elapsed();
-    char row[256];
+    char row[256], bText[96] = "";
+    if (o.bset) snprintf(bText, sizeof bText, "  from BSET: %.1f%% of games, %.1f%% of positions", 100.0 * bGames / std::max(nNew, 1L), 100.0 * bPlies / std::max(plies, 1L));
     snprintf(row, sizeof row, "{\"game\":%ld,\"tdErr\":%.8g,\"plies\":%.8g,\"capped\":%.8g}", games, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), (double)cappedN / std::max(nNew, 1L));
     rows.push_back(row);
     save();
-    printf("cycle %d  %.0fs  games %ld (buffer %zu)  play %.0fs (%.0f games/s)  train %.0fs (%ld visits)  tdErr %.4f  plies %.0f  capped %.0f%%\n", cycle, tg2, games, buf.size(),
-           tg1 - tg0, nNew / std::max(tg1 - tg0, 1e-9), tg2 - tg1, vis, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), 100.0 * cappedN / std::max(nNew, 1L));
+    printf("cycle %d  %.0fs  games %ld (buffer %zu)  play %.0fs (%.0f games/s)  train %.0fs (%ld visits)  tdErr %.4f  plies %.0f  capped %.0f%%%s\n", cycle, tg2, games, buf.size(),
+           tg1 - tg0, nNew / std::max(tg1 - tg0, 1e-9), tg2 - tg1, vis, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), 100.0 * cappedN / std::max(nNew, 1L), bText);
     fflush(stdout);
   }
   save();
