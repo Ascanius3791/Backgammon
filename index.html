@@ -67,7 +67,7 @@
         <select id="rule"></select>
         <button id="new">New game</button>
       </div>
-      <div class="row hint" id="netrow" style="margin-top:8px;display:none"><label title="The net the bot and the analysis use. Main line is the champion (best by Elo from the normal start); Wide openings was also trained from random openings and is stronger away from the usual lines; Big champion has two more hidden layers (stronger, but slower to search)">Net <select id="mixedNet"></select></label></div>
+      <div class="row hint" id="netrow" style="margin-top:8px;display:none"><label title="The net the bot and the analysis use. Main line is the champion (best by Elo from the normal start); Wide openings was also trained from random openings and is stronger away from the usual lines; Hard positions also trained on the positions where the champion and Wide openings disagree most (stronger away from the main line); Big champion has two more hidden layers (stronger, but slower to search)">Net <select id="mixedNet"></select></label></div>
       <div class="hint" id="ruleinfo" style="margin-top:8px"></div>
     </div>
     <div class="card">
@@ -127,6 +127,7 @@
 <script src="weights_rene.js"></script>
 <script src="weights_mixed.js"></script>
 <script src="weights_mixed_openings.js"></script>
+<script src="weights_mixed_hard.js"></script>
 <script src="weights_mixed_big.js"></script>
 <script>
 const { RULES, PLAYER_NAMES, rel, sgn } = BG;
@@ -473,6 +474,7 @@ for (const r of ['paul', 'rene', 'mixed']) {
 const MIXED_NETS = [
   { id: 'mainline', name: 'Main line (champion)', w: 'BOT_WEIGHTS_MIXED' },
   { id: 'openings', name: 'Wide openings', w: 'BOT_WEIGHTS_MIXED_OPENINGS' },
+  { id: 'hard', name: 'Hard positions', w: 'BOT_WEIGHTS_MIXED_HARD' },
   { id: 'big', name: 'Big champion (2 extra layers)', w: 'BOT_WEIGHTS_MIXED_BIG' },
 ];
 const mixedNets = {};
