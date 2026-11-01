@@ -323,7 +323,9 @@ template <int H> static int run(const Run& R) {
         // After the warm-up, half the Mixed games are against the greedy baseline: aimless net-vs-net games
         // never end, and a net that sees no finished games learns that nothing matters.
         bool mix = o.rule == MIXED && o.vsGreedy && gi > o.pre && gi % 2 == 0;
-        Result r = o.search ? searchGame<H>(*g, *td, s, o) : selfPlayGame<H>(*g, *td, s, gi <= o.pre ? 2 : mix ? (gi % 4 == 0 ? 0 : 1) : -1, o);
+        Opts og = o; // ALPHAEND: alpha falls linearly over TIME, as in replay mode
+        if (TIME > 0) og.alpha = ALPHA + (R.ALPHAEND - ALPHA) * std::min(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / TIME);
+        Result r = o.search ? searchGame<H>(*g, *td, s, og) : selfPlayGame<H>(*g, *td, s, gi <= o.pre ? 2 : mix ? (gi % 4 == 0 ? 0 : 1) : -1, og);
         std::lock_guard<std::mutex> lk(mtx);
         long i = ++done;
         acc.sq += r.sqErr; acc.steps += r.steps; acc.plies += r.plies; acc.games++; acc.capped += r.capped;
