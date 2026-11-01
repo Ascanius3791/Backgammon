@@ -135,10 +135,13 @@ EXPORT(cands) int cands() {
 }
 
 // best plan of the side to move in cur at the given depth: value returned, plan in io[48] (length), io[49..]
+static int g_survive = 0; // 0: score every end of an own throw by its walk search; n: only the n best by cheap value
+EXPORT(setSurvive) void setSurvive(int n) { g_survive = n; }
 EXPORT(bestPlan) float bestPlan(int depth, int prune) {
   return with([&](auto& c) {
     auto& eng = c.eng;
     eng.ab = true;
+    eng.survive = g_survive;
     float v = eng.bestPlan(c.cur, depth, prune != 0);
     io[48] = eng.bestLen;
     for (int k = 0; k < eng.bestLen; k++) io[49 + k] = eng.bestPath[k];

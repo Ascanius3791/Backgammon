@@ -158,7 +158,8 @@ template <int H> struct Engine {
   Pos wfr[MAXD + 2];
   int wmbuf[MAXD + 1][256];
   WalkSet wseen, wleaves;
-  float wbest = 0;
+  float wbest = 0, wcut = -1;
+  bool wstop = false;
   int moveDepth = 2; // Mixed, own throw: 2 = look at the opponent's forced walk of it, 1 = score the position
                      // as if they rolled next (cheaper; for pretraining only)
   static constexpr int MAXC = 1 << 14;
@@ -350,7 +351,9 @@ template <int H> struct Engine {
   // value for mover p of C, a finished segment (phase MOVE or WALK): runs the segment-end transition
   // of engine.js virtually (no copy), then scores the resulting position like valueFor. Mixed, after
   // the mover's own throw: the opponent's forced walk of it is searched (walkSearch), unless moveDepth is 1.
-  float leafValue(const Pos& C, int p) {
+  // cut: the caller only cares whether the value beats cut (P(p) > cut); a walk that already sinks to cut
+  // stops there, and the result is then an upper bound <= cut instead of the exact value.
+  float leafValue(const Pos& C, int p, float cut = -1.f) {
     if (C.off[p] == STONES) return 1;
     if (C.phase == WALK || (rollAgain && C.rolledDouble)) return evalPos(C, p);
     if (plyLimit && C.turnCount + 1 >= plyLimit) {
@@ -363,7 +366,7 @@ template <int H> struct Engine {
     if (moveDepth >= 2) {
       wfr[0] = C;
       setDice(wfr[0], C.t0, C.t1); // q walks the same throw
-      float v = walkSearch(q, p);
+      float v = walkSearch(q, p, cut);
       if (v >= 0) return v;
     }
     return 1 - evalPos(C, q); // q rolls at once (no legal walk, or depth 1)
@@ -372,9 +375,12 @@ template <int H> struct Engine {
   // Mixed: the walker w must play out the dice in wfr[0] (a WALK position). The dice are known, so there is
   // no chance node: w takes the end state that is best for w, i.e. worst for p if w is the opponent.
   // Returns P(p wins), or -1 if w has no legal move at all.
-  float walkSearch(int w, int p) {
+  // cut: stop as soon as the walker's best is at or below cut (w is the opponent) / at or above it (w is p).
+  float walkSearch(int w, int p, float cut = -1.f) {
     wseen.clear(); wleaves.clear();
     wbest = w == p ? 0.f : 1.f;
+    wcut = w == p ? 2.f : cut;
+    wstop = false;
     return wdfs(0, w, p) ? wbest : -1.f;
   }
   bool wdfs(int d, int w, int p) {
@@ -396,13 +402,16 @@ template <int H> struct Engine {
         if (left == 0) leaf = true;
         else {
           if (!wseen.insert(C.hash ^ (code * 0x9E3779B97F4A7C15ull))) continue;
-          if (wdfs(d + 1, w, p)) continue;
+          if (wdfs(d + 1, w, p)) { if (wstop) return true; continue; }
           leaf = true; // no remaining die can be played
         }
       }
       if (!wleaves.insert(C.hash)) continue;
       float v = C.off[w] == STONES ? (w == p ? 1.f : 0.f) : (w == p ? evalPos(C, w) : 1 - evalPos(C, w)); // w rolls next
-      if (w == p ? v > wbest : v < wbest) wbest = v;
+      if (w == p ? v > wbest : v < wbest) {
+        wbest = v;
+        if (w == p ? wbest >= wcut : wbest <= wcut) { wstop = true; return true; }
+      }
     }
     return true;
   }
@@ -455,9 +464,42 @@ template <int H> struct Engine {
   }
 
   // the end state of a segment: s with the moves of a candidate played and the segment-end transition run
-  void playPath(Pos& c, const int* pth, int len) const {
+  void applyPath(Pos& c, const int* pth, int len) const {
     for (int k = 0; k < len; k++) { c.cnt[mDie(pth[k])]--; make(c, c.turn, pth[k]); }
-    settle(c);
+  }
+  void playPath(Pos& c, const int* pth, int len) const { applyPath(c, pth, len); settle(c); }
+
+  // Mixed, own throw: scoring an end means a whole walk search, so the ends are visited best-first by their
+  // cheap value (the position scored without the walk search). That makes the cutoffs inside leafValue bite
+  // early; with survive > 0 only the first `survive` ends are scored at all (an approximation).
+  int survive = 0;
+  Cand rk[MAXC];
+  int ord[MAXC], nrk = 0;
+  template <class CB> void forEnds(const Pos& s, CB&& cb) {
+    if (!(mixed && moveDepth >= 2 && s.phase == MOVE)) { enumerate(s, cb); return; }
+    int p = s.turn, md = moveDepth;
+    moveDepth = 1;
+    nrk = 0;
+    enumerate(s, [&](Pos& C, int len) {
+      if (nrk == MAXC) return false;
+      Cand& c = rk[nrk];
+      for (int k = 0; k < len; k++) c.path[k] = path[k];
+      c.len = len;
+      c.q = leafValue(C, p);
+      int j = nrk++;
+      for (; j > 0 && rk[ord[j - 1]].q < c.q; j--) ord[j] = ord[j - 1];
+      ord[j] = nrk - 1;
+      return true;
+    });
+    moveDepth = md;
+    int n = survive > 0 && survive < nrk ? survive : nrk;
+    for (int i = 0; i < n; i++) {
+      const Cand& c = rk[ord[i]];
+      Pos C = s;
+      applyPath(C, c.path, c.len);
+      for (int k = 0; k < c.len; k++) path[k] = c.path[k];
+      if (!cb(C, c.len)) break;
+    }
   }
 
   // all ends of the segment of s with their 1-ply value for s.turn into cands, best first
@@ -489,8 +531,8 @@ template <int H> struct Engine {
     int p = s.turn;
     float best = -1;
     bestLen = 0;
-    enumerate(s, [&](Pos& C, int len) {
-      float v = leafValue(C, p);
+    forEnds(s, [&](Pos& C, int len) {
+      float v = leafValue(C, p, best);
       if (v > best) { best = v; bestLen = len; for (int k = 0; k < len; k++) bestPath[k] = path[k]; }
       return true;
     });
@@ -560,8 +602,9 @@ template <int H> struct Engine {
     int mover = s.turn;
     if (d <= 1) { // its ends are leaves: score them while enumerating, stop at a cutoff
       float best = mine ? -1.f : 2.f;
-      enumerate(s, [&](Pos& C, int) {
-        float v = leafValue(C, mover);
+      forEnds(s, [&](Pos& C, int) {
+        // the mover wants the highest value for itself: a candidate whose walk sinks to the best so far (or out of the window) is dropped
+        float v = leafValue(C, mover, mine ? (best > alpha ? best : alpha) : (best < beta ? 1 - best : 1 - beta));
         if (!mine) v = 1 - v;
         if (mine ? v > best : v < best) best = v;
         return mine ? best < beta : best > alpha;
@@ -571,8 +614,8 @@ template <int H> struct Engine {
     // keep the KEEP best ends by 1-ply value (all of them if there are no more), search those deeper
     Cand top[KEEP];
     int nt = 0;
-    enumerate(s, [&](Pos& C, int len) {
-      float q = leafValue(C, mover);
+    forEnds(s, [&](Pos& C, int len) {
+      float q = leafValue(C, mover, nt < KEEP ? -1.f : mine ? top[KEEP - 1].q : 1 - top[KEEP - 1].q);
       if (!mine) q = 1 - q;
       int i = nt;
       while (i > 0 && (mine ? q > top[i - 1].q : q < top[i - 1].q)) i--;
