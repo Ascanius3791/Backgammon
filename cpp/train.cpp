@@ -15,6 +15,10 @@
 // stops stalling (e.g. walking a runner back and forth behind a prime instead of coming home).
 // LIMITDRAW (Mixed, default 0): 1 = a game cut at LIMIT counts as a draw (target 0.5) instead of a win for
 // the pip leader, so the side that is ahead only scores by actually bearing off.
+// TRAIN_DEPTH (Mixed, default 2): how the self-play games choose their own throw. 2 = the full design: each
+// candidate is scored after the opponent's forced walk of that throw (2-ply minimax). 1 = scored as if the
+// opponent rolled next, ignoring the walk: several times faster, meant for pretraining only. The evaluation
+// games against the greedy baseline always use depth 2.
 // SEARCH (default 0): n >= 2 = search distillation instead of TD(lambda): every position of the self-play
 // games (before a roll or a walk) is trained toward its depth-n expectimax value (Engine::node, full
 // window; n = 2 looks one roll further than the net), discounted toward 0.5 by GAMMA.
@@ -100,7 +104,7 @@ static std::string toJSON(const Net& n) {
 
 struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; };
 struct Run { // everything main sets up before the training proper
-  int rule, PRE, WORKERS, VSGREEDY, LIMITDRAW, SEARCH;
+  int rule, PRE, WORKERS, VSGREEDY, LIMITDRAW, SEARCH, TRAIN_DEPTH;
   long GAMES, EVAL_EVERY, LOG_EVERY;
   double ALPHA, LAMBDA, TIME, GAMMA;
   int TURN_LIMIT, MAX_PLIES;
@@ -121,9 +125,12 @@ template <int H> static Result selfPlayGame(Engine<H>& g, TD<H>& td, Pos<H>& s, 
     cur = s.turn == 0 ? y : 1 - y;
     td.trace(s.turn == 0 ? 1 : -1);
 
+    // one step: the roll, the mover's segment and, in Mixed, the opponent's forced walk of that throw.
+    // The net only ever sees positions with nobody holding dice (no walk inputs; the walk is searched).
     if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
-    if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr);
-    else if (s.phase == MOVE || s.phase == WALK) g.playBest(s, nullptr);
+    while (s.phase == MOVE || s.phase == WALK) {
+      if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr); else g.playBest(s, nullptr);
+    }
 
     double nw;
     if (s.phase == OVER) nw = s.limitHit && o.limitDraw ? 0.5 : s.winner == 0 ? 1 : 0;
@@ -187,7 +194,7 @@ int main(int argc, char** argv) {
   const int HIDDEN = envInt("HIDDEN", 0);
   if (HIDDEN && !hiddenOk(HIDDEN)) { fprintf(stderr, "HIDDEN must be one of the compiled sizes (see BG_SIZES in core.h)\n"); return 1; }
   auto net = std::make_unique<Net>();
-  net->nin = rule == MIXED ? 253 : 246;
+  net->nin = 246;
   std::mt19937_64 rnd(std::random_device{}());
   std::uniform_real_distribution<double> u(-0.1, 0.1);
   std::string wt = readFile(FILE_W);
@@ -209,7 +216,7 @@ int main(int argc, char** argv) {
     for (int j = 0; j < net->h; j++) { net->b1[j] = 0; net->W2[j] = (float)u(rnd); }
     net->b2 = 0;
   }
-  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get() };
+  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get() };
   switch (net->h) {
 #define BG_RUN(n) case n: return run<n>(R);
     BG_SIZES(BG_RUN)
@@ -292,6 +299,7 @@ template <int H> static int run(const Run& R) {
       auto td = std::make_unique<TD>();
       g->setRule(o.rule, o.rule == MIXED ? o.turnLimit : 0, net);
       g->rng.s = seed;
+      g->moveDepth = R.TRAIN_DEPTH;
       td->init(net, o.search ? 0 : o.lambda);
       Pos s;
       for (;;) {

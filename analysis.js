@@ -17,7 +17,7 @@
 
   function evalStateJS(net, s, p, d) {
     if (s.phase === 'over') return s.winner === p ? 1 : 0;
-    if (d <= 1 && s.phase !== 'move') return L.valueFor(net, s, p); // 'move' = just rolled: still needs its best reply
+    if (d <= 1 && s.phase !== 'move') return L.walkValue(net, s, p); // 'move' = just rolled: still needs its best reply
     if (s.phase === 'roll') {
       let v = 0;
       for (const r of ROLLS) {
@@ -31,7 +31,7 @@
     let ends = L.endStates(s);
     const mine = s.turn === p;
     if (d >= 2 && ends.length > KEEP) {
-      ends.forEach((e) => { e.q = L.valueFor(net, e.s, p); });
+      ends.forEach((e) => { e.q = L.walkValue(net, e.s, p); });
       ends.sort((x, y) => (mine ? y.q - x.q : x.q - y.q));
       ends = ends.slice(0, KEEP);
     }

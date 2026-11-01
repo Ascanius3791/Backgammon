@@ -12,7 +12,7 @@ constexpr int HMAX = 256;            // hidden units at most; the code is compil
 #define BG_SIZE_OK(n) || h == n
 inline bool hiddenOk(int h) { return false BG_SIZES(BG_SIZE_OK); }
 #undef BG_SIZE_OK
-constexpr int NIN_MAX = 253;          // 246 inputs (Paul, Rene), 253 with the Mixed walk inputs
+constexpr int NIN_MAX = 246;          // 24 points * 5 thermometer units * 2 sides, then 6 scalars (every rule)
 constexpr int STONES = 15, MAX_STACK = 5;
 constexpr int MAXD = 4;               // dice per segment at most (Rene's doubles)
 constexpr int BAR = 25, OFF = 0;      // relative 'from' of a bar entry, relative 'to' of a bear-off
@@ -120,8 +120,8 @@ struct Rng {
 };
 
 // open-addressing set of 64-bit keys, cleared in O(1) by a generation stamp
-struct HashSet {
-  static constexpr int N = 1 << 15;
+template <int LG> struct HashSetT {
+  static constexpr int N = 1 << LG;
   uint64_t key[N];
   uint32_t stamp[N];
   uint32_t gen = 1;
@@ -137,6 +137,8 @@ struct HashSet {
     }
   }
 };
+using HashSet = HashSetT<15>;
+using WalkSet = HashSetT<12>; // the ends of one forced walk: at most a few hundred
 
 struct Cand { int path[MAXD]; int len; float q; };
 
@@ -152,6 +154,13 @@ template <int H> struct Engine {
   int path[MAXD];
   bool stop = false;
   HashSet seen, leaves;
+  // Mixed: search of the opponent's forced walk, run from inside the enumeration of the mover's own segment
+  Pos wfr[MAXD + 2];
+  int wmbuf[MAXD + 1][256];
+  WalkSet wseen, wleaves;
+  float wbest = 0;
+  int moveDepth = 2; // Mixed, own throw: 2 = look at the opponent's forced walk of it, 1 = score the position
+                     // as if they rolled next (cheaper; for pretraining only)
   static constexpr int MAXC = 1 << 14;
   Cand cands[MAXC];
   int ncand = 0;
@@ -317,8 +326,8 @@ template <int H> struct Engine {
   }
 
   // ---------------------------------------------------------------- evaluation
-  // net output for F seen by side P; walk = Mixed 'must walk' inputs on (dice from F.cnt)
-  float evalPos(const Pos& F, int P, bool walk) {
+  // net output for F seen by side P: P(P wins) with P to roll and nobody holding dice
+  float evalPos(const Pos& F, int P) {
     nEval++;
     const float* W1 = net->W1;
     const float* acc = F.acc + P * H;
@@ -328,44 +337,83 @@ template <int H> struct Engine {
     float x[H];
     for (int j = 0; j < H; j++)
       x[j] = acc[j] + e0 * B[j] + e1 * B[H + j] + e2 * B[2 * H + j] + e3 * B[3 * H + j] + e4 * B[4 * H + j] + e5 * B[5 * H + j];
-    if (walk) {
-      const float* w = W1 + 246 * H;
-      for (int j = 0; j < H; j++) x[j] += w[j];
-      for (int d = 1; d <= 6; d++) if (F.cnt[d]) {
-        float v = 0.5f * F.cnt[d];
-        const float* r = W1 + (246 + d) * H;
-        for (int j = 0; j < H; j++) x[j] += v * r[j];
-      }
-    }
     return sigmoid(outSum<H>(net->b2 + (mixed ? (F.pip[Q] - F.pip[P]) / 60.f : 0.f), x, net->W2));
   }
 
   // bot.js valueFor: P(player p wins) for a position where the roller is s.turn
   float valueFor(const Pos& s, int p) {
     if (s.phase == OVER) return s.winner == p ? 1.f : 0.f;
-    float y = evalPos(s, s.turn, mixed && s.phase == WALK);
+    float y = evalPos(s, s.turn);
     return s.turn == p ? y : 1 - y;
   }
 
   // value for mover p of C, a finished segment (phase MOVE or WALK): runs the segment-end transition
-  // of engine.js virtually (no copy), then scores the resulting position like valueFor
-  float leafValue(Pos& C, int p) {
+  // of engine.js virtually (no copy), then scores the resulting position like valueFor. Mixed, after
+  // the mover's own throw: the opponent's forced walk of it is searched (walkSearch), unless moveDepth is 1.
+  float leafValue(const Pos& C, int p) {
     if (C.off[p] == STONES) return 1;
-    if (C.phase == WALK || (rollAgain && C.rolledDouble)) return evalPos(C, p, false);
+    if (C.phase == WALK || (rollAgain && C.rolledDouble)) return evalPos(C, p);
     if (plyLimit && C.turnCount + 1 >= plyLimit) {
       int a = C.pip[0], b = C.pip[1];
       return (a < b ? 0 : a > b ? 1 : p) == p ? 1.f : 0.f;
     }
     int q = 1 - p;
-    if (!mixed) return 1 - evalPos(C, q, false);
-    if (C.bar[q] > 0 && entryBlocked(C, q)) return evalPos(C, p, false);
-    uint8_t save[7];
-    for (int k = 0; k < 7; k++) save[k] = C.cnt[k];
-    setDice(C, C.t0, C.t1); // q walks the same throw
-    bool walk = anyMove(C, q);
-    float v = evalPos(C, q, walk);
-    for (int k = 0; k < 7; k++) C.cnt[k] = save[k];
-    return 1 - v;
+    if (!mixed) return 1 - evalPos(C, q);
+    if (C.bar[q] > 0 && entryBlocked(C, q)) return evalPos(C, p);
+    if (moveDepth >= 2) {
+      wfr[0] = C;
+      setDice(wfr[0], C.t0, C.t1); // q walks the same throw
+      float v = walkSearch(q, p);
+      if (v >= 0) return v;
+    }
+    return 1 - evalPos(C, q); // q rolls at once (no legal walk, or depth 1)
+  }
+
+  // Mixed: the walker w must play out the dice in wfr[0] (a WALK position). The dice are known, so there is
+  // no chance node: w takes the end state that is best for w, i.e. worst for p if w is the opponent.
+  // Returns P(p wins), or -1 if w has no legal move at all.
+  float walkSearch(int w, int p) {
+    wseen.clear(); wleaves.clear();
+    wbest = w == p ? 0.f : 1.f;
+    return wdfs(0, w, p) ? wbest : -1.f;
+  }
+  bool wdfs(int d, int w, int p) {
+    Pos& F = wfr[d];
+    int* out = wmbuf[d];
+    int n = genAll(F, w, out);
+    if (n == 0) return false;
+    Pos& C = wfr[d + 1];
+    for (int i = 0; i < n; i++) {
+      int m = out[i];
+      C = F;
+      C.cnt[mDie(m)]--;
+      make(C, w, m);
+      bool leaf = C.off[w] == STONES;
+      if (!leaf) {
+        uint64_t code = 0;
+        int left = 0;
+        for (int k = 1; k <= 6; k++) { code = code * 5 + C.cnt[k]; left += C.cnt[k]; }
+        if (left == 0) leaf = true;
+        else {
+          if (!wseen.insert(C.hash ^ (code * 0x9E3779B97F4A7C15ull))) continue;
+          if (wdfs(d + 1, w, p)) continue;
+          leaf = true; // no remaining die can be played
+        }
+      }
+      if (!wleaves.insert(C.hash)) continue;
+      float v = C.off[w] == STONES ? (w == p ? 1.f : 0.f) : (w == p ? evalPos(C, w) : 1 - evalPos(C, w)); // w rolls next
+      if (w == p ? v > wbest : v < wbest) wbest = v;
+    }
+    return true;
+  }
+  // value for p of s, the position before a walk (phase WALK) or of any other position
+  float nodeLeaf(const Pos& s, int p) {
+    if (mixed && s.phase == WALK && moveDepth >= 2) {
+      wfr[0] = s;
+      float v = walkSearch(s.turn, p);
+      if (v >= 0) return v;
+    }
+    return valueFor(s, p);
   }
 
   // ---------------------------------------------------------------- segment enumeration
@@ -489,7 +537,7 @@ template <int H> struct Engine {
   float node(const Pos& s, int p, int d, float alpha, float beta) {
     if (!ab) { alpha = -1; beta = 2; }
     if (s.phase == OVER) return s.winner == p ? 1.f : 0.f;
-    if (d <= 1 && s.phase != MOVE) return valueFor(s, p); // MOVE = just rolled: still needs its best reply
+    if (d <= 1 && s.phase != MOVE) return nodeLeaf(s, p); // MOVE = just rolled: still needs its best reply
     if (s.phase == ROLL) {
       float sum = 0;
       int seen36 = 0;
@@ -609,10 +657,6 @@ template <int H> struct TD {
     }
     float extra[6] = { s.bar[P] / 5.f, s.bar[Q] / 5.f, s.off[P] / 15.f, s.off[Q] / 15.f, s.pip[P] / 200.f, s.pip[Q] / 200.f };
     for (int k = 0; k < 6; k++) { idx[n] = 240 + k; val[n++] = extra[k]; }
-    if (g.mixed && s.phase == WALK) {
-      idx[n] = 246; val[n++] = 1;
-      for (int d = 1; d <= 6; d++) for (int k = 0; k < s.cnt[d]; k++) { idx[n] = 246 + d; val[n++] = 0.5f; }
-    }
     nf = n;
     bias = g.mixed ? (s.pip[Q] - s.pip[P]) / 60.f : 0.f;
   }

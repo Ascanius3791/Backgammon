@@ -138,9 +138,11 @@
   // are known, so there is no chance node: they take the end state that is best for them, i.e. worst for p.
   // A skipped or dice-less opponent (no legal walk, benched) leaves a single end state.
   function walkValue(net, s, p) {
-    if (s.phase !== 'walk' || s.turn === p) return valueFor(net, s, p);
-    let v = 1;
-    for (const e of endStates(s)) v = Math.min(v, valueFor(net, e.s, p));
+    if (s.phase !== 'walk') return valueFor(net, s, p);
+    // the walker takes the end state that is best for them: worst for p if they are the opponent, best if it is p
+    const best = s.turn === p ? Math.max : Math.min;
+    let v = s.turn === p ? 0 : 1;
+    for (const e of endStates(s)) v = best(v, valueFor(net, e.s, p));
     return v;
   }
 
@@ -197,7 +199,7 @@
     return s.phase === 'over' ? s.winner : -1;
   }
 
-  const api = { H, NIN, ninFor, Net, newNet, features, endStates, key, candidates, bestPlan, netBot, randomBot, greedyBot, playGame, cloneState, valueFor };
+  const api = { H, NIN, ninFor, Net, newNet, features, endStates, key, candidates, bestPlan, netBot, randomBot, greedyBot, playGame, cloneState, valueFor, walkValue };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BotLib = api;
 })(typeof window !== 'undefined' ? window : globalThis);

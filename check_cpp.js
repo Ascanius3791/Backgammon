@@ -55,7 +55,7 @@ for (const rule of ['mixed', 'paul', 'rene']) {
       }
       const ref = new Map();
       const ends = L.endStates(s);
-      for (const e of ends) ref.set(boardKey(e.s.board.slice(1), e.s.bar, e.s.off), L.valueFor(net, e.s, s.turn));
+      for (const e of ends) ref.set(boardKey(e.s.board.slice(1), e.s.bar, e.s.off), L.walkValue(net, e.s, s.turn));
       const n = ex.ends(), out = new Float32Array(ex.memory.buffer, ex.foutPtr(), n * 29), got = new Map();
       for (let i = 0; i < n; i++) {
         const o = out.subarray(i * 29, i * 29 + 29);

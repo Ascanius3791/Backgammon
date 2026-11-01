@@ -2,6 +2,7 @@
 // sequence and swaps the colours. engine.js is the arbiter; each side picks its moves with its own fast.js.
 //   node match.js [pairs] [workers]
 //   NEW=weights_mixed.json  OLD_DIR=../Bagammon  OLD=weights_mixed.json  LIMIT=200
+//   SECS=n: play for n seconds instead of a fixed number of pairs (pairs is then ignored); QUIET=1: only the final line
 // OLD_DIR is a checkout whose fast.js/bot.js/weights match the old net (e.g. main with the 253-input Mixed net).
 const fs = require('fs');
 const path = require('path');
@@ -42,7 +43,8 @@ function setup(o) {
 
 if (!isMainThread) {
   const o = workerData, { gN, gO } = setup(o);
-  for (let p = o.from; p < o.to; p++) {
+  const deadline = o.secs ? Date.now() + o.secs * 1000 : 0;
+  for (let p = o.secs ? o.from : o.from; o.secs ? Date.now() < deadline : p < o.to; p++) {
     const R = rng(p * 7919 + 1), throws = [];
     for (let i = 0; i < 600; i++) throws.push([1 + Math.floor(R() * 6), 1 + Math.floor(R() * 6)]);
     const a = play(throws, true, gN, gO, o.limit), b = play(throws, false, gN, gO, o.limit);
@@ -55,6 +57,7 @@ if (!isMainThread) {
     newFile: path.resolve(process.env.NEW || 'weights_mixed.json'),
     oldDir: process.env.OLD_DIR || '../Bagammon',
     limit: process.env.LIMIT !== undefined ? +process.env.LIMIT : 200,
+    secs: +process.env.SECS || 0,
   };
   o.oldFile = path.resolve(o.oldDir, process.env.OLD || 'weights_mixed.json');
   let games = 0, wins = 0, unfinished = 0, limitHit = 0, pairWins = 0, pairLoss = 0, finished = 0;
@@ -66,14 +69,15 @@ if (!isMainThread) {
       `  unfinished ${unfinished}, turn limit ${limitHit}, pairs won ${pairWins} lost ${pairLoss}  ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   };
   for (let w = 0; w < WORKERS; w++) {
-    const from = Math.floor(PAIRS * w / WORKERS), to = Math.floor(PAIRS * (w + 1) / WORKERS);
+    // with SECS, each worker gets its own range of pair numbers (never reached before the deadline)
+    const from = o.secs ? w * 1000000 : Math.floor(PAIRS * w / WORKERS), to = o.secs ? (w + 1) * 1000000 : Math.floor(PAIRS * (w + 1) / WORKERS);
     const wk = new Worker(__filename, { workerData: Object.assign({ from, to }, o) });
     wk.on('message', (m) => {
       if (m.done) { if (++finished === WORKERS) report(); return; }
       let pw = 0;
       for (const g of m.res) { games++; if (g.unfinished) unfinished++; else if (g.newWon) { wins++; pw++; } if (g.limitHit) limitHit++; }
       if (pw === 2) pairWins++; else if (pw === 0) pairLoss++;
-      if (games % 100 === 0) report();
+      if (!process.env.QUIET && games % 100 === 0) report();
     });
     wk.on('error', (e) => { console.error(e); process.exitCode = 1; });
   }
