@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training progress</title>
+<style>
+  :root { --bg: #1c1a17; --panel: #262320; --text: #e8e2d6; --muted: #9a9284; --line: #3a352e; --a: #6fb1ff; --b: #5fd38d; --c: #f2c14e; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; padding: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; max-width: 900px; }
+  h1 { font-size: 18px; margin: 0 0 8px; } h2 { font-size: 14px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
+  svg { width: 100%; height: auto; display: block; }
+  select, button { font: inherit; color: var(--text); background: #3a352e; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+  .hint { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Training progress</h1>
+  <select id="rule"></select>
+  <button id="reload">Reload data</button>
+  <span class="hint">Re-run <code>node train.js</code>, then reload this page (the data is read from metrics_&lt;rule&gt;.js).</span>
+</div>
+<div class="card"><h2>Mean squared TD error per step (lower = the net predicts its own next value better; it flattens, it does not go to 0)</h2><svg id="c1" viewBox="0 0 860 240"></svg></div>
+<div class="card"><h2>Win rate against the benchmark opponent (random for Paul/Rene, greedy for Mixed)</h2><svg id="c2" viewBox="0 0 860 240"></svg></div>
+<div class="card"><h2>Average game length (plies)</h2><svg id="c3" viewBox="0 0 860 240"></svg></div>
+
+<script>
+const RULES = ['paul', 'rene', 'mixed'];
+const sel = document.getElementById('rule');
+for (const r of RULES) sel.insertAdjacentHTML('beforeend', `<option>${r}</option>`);
+sel.value = new URLSearchParams(location.search).get('rule') || 'mixed';
+
+function loadScript(rule) {
+  return new Promise((res) => {
+    const sc = document.createElement('script');
+    sc.src = `metrics_${rule}.js?t=${Date.now()}`;
+    sc.onload = () => res(window['METRICS_' + rule.toUpperCase()] || []);
+    sc.onerror = () => res([]);
+    document.head.appendChild(sc);
+  });
+}
+
+function chart(svgId, rows, key, color, opts) {
+  const svg = document.getElementById(svgId);
+  const pts = rows.filter((r) => r[key] !== undefined && r[key] !== null).map((r) => [r.game, r[key]]);
+  const W = 860, H = 240, L = 50, R = 12, T = 10, B = 28;
+  if (pts.length < 2) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" fill="#9a9284" text-anchor="middle">no data yet</text>`; return; }
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let y0 = opts.min !== undefined ? opts.min : Math.min(...ys), y1 = opts.max !== undefined ? opts.max : Math.max(...ys);
+  if (y1 === y0) y1 = y0 + 1;
+  const X = (v) => L + (v - x0) / Math.max(x1 - x0, 1) * (W - L - R);
+  const Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+  let h = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = y0 + (y1 - y0) * i / 4, y = Y(v);
+    h += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="#3a352e"/><text x="${L - 6}" y="${y + 4}" fill="#9a9284" font-size="11" text-anchor="end">${v.toFixed(opts.dec)}</text>`;
+  }
+  for (let i = 0; i <= 4; i++) {
+    const v = x0 + (x1 - x0) * i / 4;
+    h += `<text x="${X(v)}" y="${H - 8}" fill="#9a9284" font-size="11" text-anchor="middle">${Math.round(v)}</text>`;
+  }
+  h += `<polyline fill="none" stroke="${color}" stroke-width="1" opacity=".35" points="${pts.map((p) => X(p[0]) + ',' + Y(p[1])).join(' ')}"/>`;
+  const k = Math.max(1, Math.round(pts.length / 25)); // moving average
+  const sm = pts.map((p, i) => {
+    const a = pts.slice(Math.max(0, i - k + 1), i + 1);
+    return [p[0], a.reduce((s, q) => s + q[1], 0) / a.length];
+  });
+  h += `<polyline fill="none" stroke="${color}" stroke-width="2.2" points="${sm.map((p) => X(p[0]) + ',' + Y(p[1])).join(' ')}"/>`;
+  svg.innerHTML = h;
+}
+
+async function draw() {
+  const rows = await loadScript(sel.value);
+  chart('c1', rows, 'tdErr', 'var(--a)', { dec: 4, min: 0 });
+  chart('c2', rows, 'winRate', 'var(--b)', { dec: 2, min: 0, max: 1 });
+  chart('c3', rows, 'plies', 'var(--c)', { dec: 0, min: 0 });
+}
+sel.onchange = draw;
+document.getElementById('reload').onclick = draw;
+draw();
+</script>
+</body>
+</html>

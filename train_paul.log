@@ -1,0 +1,15 @@
+game 2000  30s  vs random: 100/100
+game 4000  67s  vs random: 99/100
+game 6000  102s  vs random: 100/100
+game 8000  141s  vs random: 99/100
+game 10000  181s  vs random: 98/100
+game 12000  218s  vs random: 100/100
+game 14000  255s  vs random: 100/100
+game 16000  303s  vs random: 100/100
+game 18000  350s  vs random: 100/100
+game 20000  392s  vs random: 100/100
+game 22000  438s  vs random: 100/100
+game 24000  481s  vs random: 99/100
+game 26000  523s  vs random: 99/100
+game 28000  565s  vs random: 100/100
+game 30000  610s  vs random: 99/100

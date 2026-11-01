@@ -1,0 +1,40 @@
+game 100  1s  tdErr 0.0026  plies 117  capped 0%
+game 200  2s  tdErr 0.0017  plies 133  capped 0%
+game 300  3s  tdErr 0.0018  plies 132  capped 0%
+game 400  7s  tdErr 0.0010  plies 150  capped 6%
+game 500  11s  tdErr 0.0010  plies 169  capped 6%
+game 600  16s  tdErr 0.0009  plies 199  capped 10%
+game 700  23s  tdErr 0.0009  plies 202  capped 9%
+game 800  29s  tdErr 0.0010  plies 214  capped 13%
+game 900  33s  tdErr 0.0009  plies 189  capped 8%
+game 1000  38s  tdErr 0.0010  plies 187  capped 8%  vs greedy: 1 (1 unfinished)
+game 1100  42s  tdErr 0.0012  plies 181  capped 10%
+game 1200  49s  tdErr 0.0011  plies 239  capped 16%
+game 1300  57s  tdErr 0.0009  plies 216  capped 17%
+game 1400  63s  tdErr 0.0009  plies 231  capped 24%
+game 1500  69s  tdErr 0.0009  plies 244  capped 35%
+game 1600  77s  tdErr 0.0010  plies 219  capped 21%
+game 1700  85s  tdErr 0.0011  plies 249  capped 33%
+game 1800  96s  tdErr 0.0010  plies 273  capped 43%
+game 1900  106s  tdErr 0.0011  plies 272  capped 47%
+game 2000  117s  tdErr 0.0010  plies 253  capped 43%  vs greedy: null (20 unfinished)
+game 2100  128s  tdErr 0.0010  plies 257  capped 46%
+game 2200  138s  tdErr 0.0009  plies 271  capped 50%
+game 2300  148s  tdErr 0.0010  plies 259  capped 46%
+game 2400  159s  tdErr 0.0011  plies 260  capped 47%
+game 2500  170s  tdErr 0.0011  plies 272  capped 50%
+game 2600  180s  tdErr 0.0011  plies 270  capped 50%
+game 2700  193s  tdErr 0.0011  plies 290  capped 50%
+game 2800  203s  tdErr 0.0011  plies 280  capped 52%
+game 2900  213s  tdErr 0.0011  plies 261  capped 48%
+game 3000  227s  tdErr 0.0010  plies 270  capped 49%  vs greedy: null (20 unfinished)
+game 3100  238s  tdErr 0.0011  plies 296  capped 50%
+game 3200  249s  tdErr 0.0010  plies 295  capped 49%
+game 3300  262s  tdErr 0.0010  plies 300  capped 50%
+game 3400  273s  tdErr 0.0011  plies 275  capped 48%
+game 3500  282s  tdErr 0.0011  plies 261  capped 46%
+game 3600  292s  tdErr 0.0011  plies 270  capped 47%
+game 3700  304s  tdErr 0.0012  plies 274  capped 48%
+game 3800  313s  tdErr 0.0012  plies 270  capped 38%
+game 3900  322s  tdErr 0.0012  plies 267  capped 41%
+game 4000  337s  tdErr 0.0012  plies 301  capped 48%  vs greedy: 1 (18 unfinished)

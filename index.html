@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bagammon</title>
+<style>
+  :root {
+    --bg: #1c1a17; --panel: #262320; --text: #e8e2d6; --muted: #9a9284; --line: #3a352e;
+    --wood: #5a3d26; --tri-a: #c9a36a; --tri-b: #7d4a2e; --felt: #2f4a3a;
+    --white: #f1ece0; --black: #26221e; --ring: #f2c14e; --dest: #5fd38d; --back: #6fb1ff; --best: #3dd6c6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
+  .app { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+  .boardwrap { flex: 1 1 640px; min-width: 0; }
+  svg { width: 100%; height: auto; display: block; border-radius: 10px; user-select: none; touch-action: none; }
+  .side { flex: 0 1 300px; min-width: 260px; display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  select, button { font: inherit; color: var(--text); background: #3a352e; border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #4a443a; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #3f7a55; border-color: #4f9068; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .status { font-weight: 600; margin-bottom: 8px; }
+  .dice { display: flex; gap: 8px; min-height: 44px; align-items: center; }
+  .die { width: 40px; height: 40px; border-radius: 8px; background: var(--white); color: #222;
+    display: grid; place-items: center; font-weight: 700; font-size: 20px; }
+  .die.black { background: var(--black); color: var(--white); border: 1px solid #6a6257; }
+  .die.used { opacity: .25; }
+  .hint { color: var(--muted); font-size: 13px; }
+  #log { position: relative; height: 190px; overflow-y: auto; font: 12.5px/1.5 ui-monospace, monospace; color: var(--muted); }
+  .an-list { font: 12.5px/1.6 ui-monospace, monospace; color: var(--muted); }
+  .an-list .best { color: var(--best); }
+  .count { color: var(--muted); font-size: 13px; }
+  .boardwrap { display: flex; gap: 8px; align-items: flex-start; }
+  .bcol { flex: 1 1 auto; min-width: 0; }
+  .evalcol { flex: 0 0 38px; display: none; position: sticky; top: 16px; flex-direction: column; align-items: center; gap: 4px;
+    height: min(86vh, 640px); font-size: 11px; color: var(--muted); }
+  .evalcol.on { display: flex; }
+  .evalbar { flex: 1; width: 26px; background: var(--black); border: 1px solid #6a6257; border-radius: 5px; position: relative; overflow: hidden; }
+  .evalfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--white); transition: height .25s; }
+  .evalmid { position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--best); opacity: .7; }
+  #evalnote { display: none; padding: 6px 10px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; font-size: 14px; position: sticky; top: 0; z-index: 5; }
+  #log div { cursor: pointer; } #log div:hover { color: var(--text); } #log div.cur { color: var(--best); }
+  .viewing { color: var(--ring); }
+  .skip { margin-top: 8px; padding: 6px 10px; border: 1px solid var(--ring); border-radius: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="boardwrap">
+    <div class="evalcol" id="evalcol"><span id="evalB">B</span><div class="evalbar"><div class="evalfill" id="evalfill"></div><div class="evalmid"></div></div><span id="evalW">W</span></div>
+    <div class="bcol"><div id="evalnote"></div><svg id="board" viewBox="0 0 1000 640"></svg></div>
+  </div>
+  <div class="side">
+    <div class="card">
+      <h1>Bagammon</h1>
+      <div class="row">
+        <select id="rule"></select>
+        <button id="new">New game</button>
+      </div>
+      <div class="hint" id="ruleinfo" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <div class="status" id="status"></div>
+      <div class="dice" id="dice"></div>
+      <div class="skip" id="skip" style="display:none"><span id="skiptext"></span><button id="skipOk" class="primary" title="Enter">OK</button></div>
+      <div class="row" style="margin-top:10px">
+        <button id="undo">Undo</button>
+        <button id="resign">Resign</button>
+      </div>
+      <label class="hint" style="display:block;margin-top:8px"><input type="checkbox" id="hl" checked> Highlight legal moves</label>
+      <label class="hint" style="display:block" title="A throw without any legal move waits for OK when it is a human's throw; any such throw stays visible for at least 3/4 s"><input type="checkbox" id="ackSkip" checked> Confirm impossible throws</label>
+      <div class="hint" style="margin-top:8px">Bot:
+        <label><input type="checkbox" id="botW"> White</label>
+        <label><input type="checkbox" id="botB"> Black</label>
+        <label><input type="checkbox" id="botStep"> Wait for me</label>
+        <label title="How many rolls the bot looks ahead. 2 to 4 search in background threads; 4 takes seconds (Paul) to many minutes (Mixed) per move">Depth <select id="botDepth"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+        <button id="botGo" style="display:none">Continue</button>
+      </div>
+      <div class="count" id="count" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <div class="row"><b>Replay</b><span class="hint" id="repinfo"></span></div>
+      <div class="row" style="margin-top:6px"><button id="rFirst" title="start">⏮</button><button id="rPrev" title="back (←)">◀</button><button id="rNext" title="forward (→)">▶</button><button id="rLive">Live</button></div>
+      <input type="range" id="rSlider" min="0" max="0" value="0" style="width:100%;margin-top:6px">
+      <div class="hint" style="margin-top:4px">Arrow keys step through the game; click a log line to jump there. History is read-only; analysis works on any position.</div>
+    </div>
+    <div class="card">
+      <label><b>Analysis</b> <input type="checkbox" id="an"></label>
+      <div class="row hint" style="margin-top:6px">
+        <label title="Depth 1 and 2 score every move. Depth 3 and 4 search only the best move and the move you play (in background threads)">Depth <select id="depth"><option value="1">1 (bot's view)</option><option value="2" selected>2 plies</option><option value="3">3 (best + yours)</option><option value="4">4 (best + yours, slow)</option></select></label>
+        <label><input type="checkbox" id="bestHl" checked> Highlight best move</label>
+      </div>
+      <div class="an-list" id="anlist" style="margin-top:6px"></div>
+      <div class="hint" id="lastinfo" style="margin-top:6px"></div>
+      <div class="hint" id="stats" style="margin-top:6px"></div>
+      <div class="row" style="margin-top:6px"><button id="review">Evaluate game</button><span class="hint" id="revinfo"></span></div>
+      <div class="hint" style="margin-top:6px">Values are your chance of winning (expected score). Lost score = best move minus your move. Right-click a point (nothing selected) to play its only legal move, or to bear a stone off; right-click with a stone selected to deselect.</div>
+    </div>
+    <div class="card"><div id="log"></div></div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script src="bot.js"></script>
+<script src="bgcore_wasm.js"></script>
+<script src="core_wasm.js"></script>
+<script src="analysis.js"></script>
+<script src="pool.js"></script>
+<script src="weights_paul.js"></script>
+<script src="weights_rene.js"></script>
+<script src="weights_mixed.js"></script>
+<script>
+const { RULES, PLAYER_NAMES, rel, sgn } = BG;
+const RULE_INFO = {
+  paul: 'Doubles play twice, then you must roll again. Bearing off with a larger die is allowed from the highest stone.',
+  rene: 'Like Paul, but doubles play four times.',
+  mixed: 'Walk the opponent\'s last throw, then throw your own. Stones may walk backwards (not once any stone has been borne off, while any stone is benched, or inside the home quadrant). Overshooting is allowed when bearing off (from the highest stone), but a die n must bear off a stone on point n if you have one. A benched player with no opening is skipped.',
+};
+
+let s, sel = null, hist = [], score = [0, 0], showHints = true;
+let seg = null, an = null, records = [], reviewing = null, lastInfo = '';
+let timeline = [], live = null, viewIdx = 0, lastW = null;
+const nets = {};
+const $ = (id) => document.getElementById(id);
+const svg = $('board');
+
+const COL = 62, BARW = 56, X0 = 160, TOP = 30, BOT = 610, TH = 260, R = 24;
+function colX(i) { return X0 + i * COL + (i >= 6 ? BARW : 0); }
+function pointCol(a) { return a >= 13 ? 24 - a : a - 1; }
+const isTop = (a) => a >= 13;
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+function fresh(rule) {
+  s = BG.newGame(rule); sel = null; hist = [];
+  seg = null; records = []; lastInfo = ''; $('revinfo').textContent = '';
+  if (live) dropAnalysis(live.an);
+  timeline = []; live = null; lastW = null;
+  if (an) an.cancel = true;
+  an = null;
+  if (reviewing) reviewing.cancel = true;
+  reviewing = null;
+  pool.cancelAll(); botThink = null; botPlan = null; pause = null;
+  render();
+}
+
+function sourceKey(p, m) { return m.from === 'bar' ? 'bar' : rel(p, m.from); }
+function destKey(p, m) { return m.to === 'off' ? 'off' : rel(p, m.to); }
+
+const allMoves = () => BG.allMoves(s);
+
+// All squares the stone on `from` can reach with one or several dice (same stone, every step legal).
+// Returns Map(destKey -> shortest move sequence). Ending where it started (a "null move",
+// e.g. forward then back with a pair in mixed) is never offered.
+function paths(from) {
+  const p = s.turn, out = new Map();
+  const walk = (st, pos, seq) => {
+    const ms = BG.allMoves(st).filter((m) => String(sourceKey(p, m)) === String(pos)).sort((x, y) => x.die - y.die);
+    for (const m of ms) {
+      const next = clone(st);
+      BG.applyMove(next, m);
+      const q = seq.concat(m), k = String(destKey(p, m));
+      if (k !== String(from) && (!out.has(k) || out.get(k).length > q.length)) out.set(k, q);
+      if (k !== 'off' && next.turn === p && (next.phase === 'move' || next.phase === 'walk')) walk(next, k, q);
+    }
+  };
+  walk(s, from, []);
+  return out;
+}
+
+// Plays a sequence of moves for the side to move and records finished segments for the accuracy stats.
+function play(seq) {
+  const g = curSeg(), p = s.turn;
+  hist.push(clone(s));
+  for (const m of seq) { BG.applyMove(s, m); snapshot(); }
+  if (s.turn !== p) hist = [];
+  sel = null;
+  if (g && !segValid(g)) finishSeg(g);
+  render();
+}
+
+function act(key) {
+  if (live) return;
+  if (s.phase !== 'move' && s.phase !== 'walk') return;
+  const p = s.turn;
+  if (sel !== null) {
+    const seq = paths(sel).get(String(key));
+    if (seq) return play(seq);
+  }
+  const has = allMoves().some((m) => String(sourceKey(p, m)) === String(key));
+  sel = has && String(sel) !== String(key) ? key : null;
+  render();
+}
+
+function el(tag, attrs, inner) {
+  let a = '';
+  for (const k in attrs) a += ` ${k}="${attrs[k]}"`;
+  return `<${tag}${a}>${inner || ''}</${tag}>`;
+}
+
+function stone(cx, cy, p, ring) {
+  const fill = p === 0 ? 'var(--white)' : 'var(--black)';
+  const stroke = p === 0 ? '#9d9585' : '#6a6257';
+  let out = el('circle', { cx, cy, r: R, fill, stroke, 'stroke-width': 2, 'pointer-events': 'none' });
+  out += el('circle', { cx, cy, r: R - 8, fill: 'none', stroke, 'stroke-width': 1, opacity: .6, 'pointer-events': 'none' });
+  if (ring) out += el('circle', { cx, cy, r: R + 3, fill: 'none', stroke: ring, 'stroke-width': 3, 'pointer-events': 'none' });
+  return out;
+}
+
+function render() {
+  const p = s.turn;
+  const moves = allMoves();
+  if (s.phase === 'over' && !s.counted && !live) { s.counted = true; score[s.winner]++; }
+  const srcs = new Set(showHints ? moves.map((m) => String(sourceKey(p, m))) : []);
+  const dests = new Map();
+  const plans = $('an').checked ? curPlans() : null;
+  const bn = $('an').checked && $('bestHl').checked ? bestNow() : null;
+  const bm = bn && bn.move;
+  const bmSrc = bm ? String(sourceKey(p, bm)) : null, bmDst = bm ? String(destKey(p, bm)) : null;
+  const labels = new Map();
+  if (sel !== null && showHints) {
+    for (const k of paths(sel).keys()) {
+      const back = sel !== 'bar' && k !== 'off' && rel(p, +k) > rel(p, +sel);
+      dests.set(k, back ? 'back' : 'fwd');
+    }
+    if (plans) for (const [k, seq] of paths(sel)) labels.set(k, destValue(seq));
+  }
+  let h = el('rect', { x: 0, y: 0, width: 1000, height: 640, rx: 10, fill: 'var(--wood)' });
+  h += el('rect', { x: X0 - 8, y: TOP - 8, width: 372 * 2 + BARW + 16, height: BOT - TOP + 16, fill: 'var(--felt)' });
+
+  // triangles, highlights and hit areas
+  for (let a = 1; a <= 24; a++) {
+    const x = colX(pointCol(a)), top = isTop(a);
+    const yb = top ? TOP : BOT, ya = top ? TOP + TH : BOT - TH;
+    const col = (a % 2 === 0) ? 'var(--tri-a)' : 'var(--tri-b)';
+    h += el('polygon', { points: `${x},${yb} ${x + COL},${yb} ${x + COL / 2},${ya}`, fill: col });
+    const d = dests.get(String(a));
+    if (d) h += el('polygon', { points: `${x},${yb} ${x + COL},${yb} ${x + COL / 2},${ya}`, fill: d === 'back' ? 'var(--back)' : 'var(--dest)', opacity: .45, 'pointer-events': 'none' });
+    if (bmDst === String(a)) h += el('polygon', { points: `${x},${yb} ${x + COL},${yb} ${x + COL / 2},${ya}`, fill: 'none', stroke: 'var(--best)', 'stroke-width': 5, 'pointer-events': 'none' });
+    h += el('text', { x: x + COL / 2, y: top ? TOP - 12 : BOT + 24, 'text-anchor': 'middle', fill: 'var(--tri-a)', 'font-size': 13 }, a);
+  }
+
+  // stones on points
+  for (let a = 1; a <= 24; a++) {
+    const v = s.board[a];
+    if (!v) continue;
+    const owner = v > 0 ? 0 : 1, n = Math.abs(v);
+    const x = colX(pointCol(a)) + COL / 2, top = isTop(a);
+    for (let k = 0; k < n; k++) {
+      const cy = top ? TOP + R + 2 + k * 50 : BOT - R - 2 - k * 50;
+      let ring = null;
+      if (k === n - 1 && owner === p) {
+        if (String(sel) === String(a)) ring = 'var(--ring)';
+        else if (bmSrc === String(a)) ring = 'var(--best)';
+        else if (srcs.has(String(a))) ring = 'rgba(242,193,78,.55)';
+      }
+      h += stone(x, cy, owner, ring);
+    }
+  }
+
+  // bar
+  const bx = colX(6) - BARW, by = TOP;
+  h += el('rect', { x: bx, y: by, width: BARW, height: BOT - TOP, fill: '#3b2a1c' });
+  for (let q = 0; q < 2; q++) {
+    const n = s.bar[q];
+    const step = Math.min(50, 220 / Math.max(n, 1));
+    for (let k = 0; k < n; k++) {
+      const cy = q === 1 ? 300 - k * step : 340 + k * step;
+      const ring = q === p ? (String(sel) === 'bar' ? 'var(--ring)' : (bmSrc === 'bar' ? 'var(--best)' : srcs.has('bar') ? 'rgba(242,193,78,.55)' : null)) : null;
+      h += stone(bx + BARW / 2, cy, q, ring);
+    }
+  }
+
+  // off trays
+  const tx = 40;
+  for (let q = 0; q < 2; q++) {
+    const y0 = q === 1 ? TOP : BOT - TH;
+    h += el('rect', { x: tx, y: y0, width: 90, height: TH, rx: 6, fill: '#3b2a1c' });
+    if (q === p && dests.has('off')) h += el('rect', { x: tx, y: y0, width: 90, height: TH, rx: 6, fill: 'var(--dest)', opacity: .4, 'pointer-events': 'none' });
+    if (q === p && bmDst === 'off') h += el('rect', { x: tx, y: y0, width: 90, height: TH, rx: 6, fill: 'none', stroke: 'var(--best)', 'stroke-width': 5, 'pointer-events': 'none' });
+    for (let k = 0; k < s.off[q]; k++) {
+      const y = q === 1 ? y0 + 6 + k * 16 : y0 + TH - 18 - k * 16;
+      h += el('rect', { x: tx + 15, y, width: 60, height: 12, rx: 3, fill: q === 0 ? 'var(--white)' : 'var(--black)', stroke: '#8a8272' });
+    }
+  }
+
+  // win chance of each destination of the selected stone
+  let bestLab = -1;
+  for (const v of labels.values()) bestLab = Math.max(bestLab, v);
+  for (const [k, v] of labels) {
+    let x, y;
+    if (k === 'off') { x = tx + 45; y = (p === 1 ? TOP : BOT - TH) + TH / 2; }
+    else { const a = +k; x = colX(pointCol(a)) + COL / 2; y = isTop(a) ? TOP + TH + 16 : BOT - TH - 8; }
+    h += el('text', { x, y, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 700, fill: v === bestLab ? 'var(--best)' : '#fff',
+      stroke: '#000', 'stroke-width': 3, 'paint-order': 'stroke', 'pointer-events': 'none' }, `${(v * 100).toFixed(1)}%`);
+  }
+
+  // clickable areas (on top)
+  for (let a = 1; a <= 24; a++) {
+    const x = colX(pointCol(a)), top = isTop(a);
+    h += el('rect', { x, y: top ? TOP : BOT - TH, width: COL, height: TH, fill: 'transparent', 'data-key': a, style: 'cursor:pointer' });
+  }
+  h += el('rect', { x: bx, y: by, width: BARW, height: BOT - TOP, fill: 'transparent', 'data-key': 'bar', style: 'cursor:pointer' });
+  h += el('rect', { x: tx, y: p === 1 ? TOP : BOT - TH, width: 90, height: TH, fill: 'transparent', 'data-key': 'off', style: 'cursor:pointer' });
+
+  svg.innerHTML = h;
+  renderPanel(moves);
+}
+
+const secs = (t0) => ((performance.now() - t0) / 1000).toFixed(0);
+function statusText() {
+  const name = PLAYER_NAMES[s.turn];
+  let t = '';
+  if (s.phase === 'roll') t = `${name} to roll`;
+  else if (s.phase === 'walk') t = `${name}: walk the opponent's throw`;
+  else if (s.phase === 'move') t = `${name} to move`;
+  else t = `${PLAYER_NAMES[s.winner]} wins!`;
+  if (botThink && !live) t += ` (thinking at depth ${botThink.depth}, ${secs(botThink.t0)} s)`;
+  return t;
+}
+
+function renderPanel(moves) {
+  const R_ = RULES[s.rule];
+  $('status').textContent = statusText();
+  $('skip').style.display = pause && !live ? '' : 'none';
+  if (pause) { $('skiptext').textContent = pause.text; $('skipOk').style.display = pause.ack ? '' : 'none'; }
+
+  const all = s.phase === 'walk' || s.phase === 'move' ? s.dice : [];
+  let faces = [];
+  if (all.length && R_.mixed && s.throw) {
+    // mixed: first die white, second die black; used dice stay visible but dimmed
+    const [x, y] = s.throw, n = x === y ? R_.doubleMoves : 2;
+    const left = all.slice();
+    for (let i = 0; i < n; i++) {
+      const d = i % 2 ? y : x;
+      const j = left.indexOf(d);
+      if (j >= 0) left.splice(j, 1);
+      faces.push(`<div class="die${i % 2 ? ' black' : ''}${j < 0 ? ' used' : ''}">${d}</div>`);
+    }
+  } else {
+    faces = all.map((d) => `<div class="die${s.turn === 1 ? ' black' : ''}">${d}</div>`);
+  }
+  if (!faces.length && s.throw && s.phase !== 'over') {
+    // nothing left to play: still show the throw, dimmed (white = first die in mixed, else the roller's colour)
+    faces = s.throw.map((d, i) => `<div class="die used${(R_.mixed ? i % 2 : s.turn === 1) ? ' black' : ''}">${d}</div>`);
+    if (R_.mixed && s.pending) faces.push('<span class="hint">to be walked by the opponent</span>');
+  }
+  $('dice').innerHTML = faces.join('');
+
+  $('undo').disabled = !!live || hist.length === 0;
+  $('count').textContent = `Score: White ${score[0]} - ${score[1]} Black  |  Borne off: White ${s.off[0]}, Black ${s.off[1]}  |  Bench: White ${s.bar[0]}, Black ${s.bar[1]}`;
+  $('ruleinfo').textContent = RULE_INFO[s.rule];
+  const lg = $('log'), full = live ? live.s.log : s.log, from = Math.max(0, full.length - 60);
+  const curN = live ? timeline[viewIdx].n : -1;
+  lg.innerHTML = full.slice(from).map((l, k) => `<div data-i="${from + k}"${from + k + 1 === curN ? ' class="cur"' : ''}>${l}</div>`).join('');
+  // scroll only the log box itself; scrollIntoView would drag the whole page along
+  const c = live && lg.querySelector('.cur');
+  if (!live) lg.scrollTop = lg.scrollHeight;
+  else if (c) {
+    if (c.offsetTop < lg.scrollTop) lg.scrollTop = c.offsetTop;
+    else if (c.offsetTop + c.offsetHeight > lg.scrollTop + lg.clientHeight) lg.scrollTop = c.offsetTop + c.offsetHeight - lg.clientHeight;
+  }
+  $('resign').disabled = !!live || s.phase === 'over';
+  renderAnalysis();
+}
+
+svg.addEventListener('click', (e) => {
+  const k = e.target.closest('[data-key]');
+  if (k && !skipClick) act(k.getAttribute('data-key'));
+});
+svg.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (live) return;
+  if (sel !== null) { sel = null; render(); return; } // never bears off while a stone is selected
+  if (s.phase !== 'move' && s.phase !== 'walk') return;
+  const k = e.target.closest('[data-key]');
+  const key = k && k.getAttribute('data-key');
+  if (key === null || key === 'off') return;
+  // a stone with exactly one reachable destination simply plays it
+  const dests = paths(key);
+  if (dests.size === 1) return play([...dests.values()][0]);
+  if (key === 'bar') return;
+  const r = rel(s.turn, +key);
+  // smallest die that bears this stone off: a larger one stays available for other stones
+  const offs = allMoves().filter((m) => m.from === r && m.to === 'off').sort((x, y) => x.die - y.die);
+  if (offs.length) play([offs[0]]);
+});
+
+// drag a stone: pointerdown on a movable point, move past a small threshold, drop on a destination
+let drag = null, skipClick = false;
+const keyAt = (x, y) => {
+  const t = document.elementFromPoint(x, y);
+  const k = t && t.closest('[data-key]');
+  return k ? k.getAttribute('data-key') : null;
+};
+svg.addEventListener('pointerdown', (e) => {
+  if (live || e.button !== 0 || (s.phase !== 'move' && s.phase !== 'walk')) return;
+  const key = keyAt(e.clientX, e.clientY);
+  if (key === null || !allMoves().some((m) => String(sourceKey(s.turn, m)) === key)) return;
+  drag = { key, x: e.clientX, y: e.clientY, active: false, ghost: null };
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  if (!drag.active) {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return;
+    drag.active = true;
+    sel = drag.key;
+    render();
+    const g = document.createElement('div');
+    const d = svg.getBoundingClientRect().width / 1000 * R * 2;
+    g.style.cssText = `position:fixed;pointer-events:none;border-radius:50%;width:${d}px;height:${d}px;` +
+      `background:${s.turn === 0 ? 'var(--white)' : 'var(--black)'};border:2px solid var(--ring);z-index:10;opacity:.9`;
+    document.body.appendChild(g);
+    drag.ghost = g;
+  }
+  const w = drag.ghost.offsetWidth;
+  drag.ghost.style.left = `${e.clientX - w / 2}px`;
+  drag.ghost.style.top = `${e.clientY - w / 2}px`;
+});
+function endDrag(e, drop) {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  if (!d.active) return;
+  d.ghost.remove();
+  skipClick = true;
+  setTimeout(() => { skipClick = false; }, 0);
+  const key = drop ? keyAt(e.clientX, e.clientY) : null;
+  if (key !== null && key !== d.key && paths(d.key).has(key)) act(key);
+  else render();
+}
+document.addEventListener('pointerup', (e) => endDrag(e, true));
+document.addEventListener('pointercancel', (e) => endDrag(e, false));
+
+$('undo').onclick = () => { if (!live && hist.length) { s = hist.pop(); sel = null; render(); } };
+$('hl').onchange = () => { showHints = $('hl').checked; render(); };
+$('new').onclick = () => fresh($('rule').value);
+$('rule').onchange = () => fresh($('rule').value);
+
+// ---- bot driver ----
+const PRI_BOT = 0, PRI_AN = 1, PRI_REVIEW = 2; // search pool priorities: the bot's move first
+const pool = SearchPool.create();
+const deepReady = () => !!window.CoreWasm && CoreWasm.ready();
+if (window.CoreWasm) CoreWasm.onReady(() => { if (s) render(); }); // may fire at once, before the first fresh()
+const bots = {};
+for (const r of ['paul', 'rene', 'mixed']) {
+  try { nets[r] = new BotLib.Net(window['BOT_WEIGHTS_' + r.toUpperCase()]); bots[r] = BotLib.netBot(nets[r]); } catch (e) {}
+}
+const botOn = [() => $('botW').checked, () => $('botB').checked];
+const botDepth = () => +$('botDepth').value;
+// depth 1: the net's own choice, move by move. Deeper: the plan for the whole segment is searched once in
+// the pool (expectimax with cutoffs in the C++ core), then played move by move.
+let botTimer = null, botThink = null, botPlan = null; // botPlan.path[i] is played from the state with key botPlan.keys[i]
+// keys of the states from which the moves of path are played
+function planKeys(s0, path) {
+  const c = BotLib.cloneState(s0), keys = [];
+  for (const m of path) { keys.push(BotLib.key(c)); BG.applyMove(c, m); }
+  return keys;
+}
+function botStep() {
+  botTimer = null;
+  const bot = bots[s.rule];
+  if (live || !bot || s.phase === 'over' || !botOn[s.turn]()) return;
+  hist = []; sel = null;
+  if (s.phase === 'roll') { BG.roll(s); return render(); }
+  const d = botDepth(), k = BotLib.key(s);
+  const i = botPlan && botPlan.depth === d && botPlan.rule === s.rule ? botPlan.keys.indexOf(k) : -1;
+  if (i >= 0) BG.applyMove(s, botPlan.path[i]);
+  else if (d <= 1 || !deepReady()) BG.applyMove(s, bot.move(s));
+  else if (!botThink) {
+    const st = BotLib.cloneState(s), task = botThink = pool.best(s.rule, nets[s.rule], s, d, PRI_BOT);
+    Object.assign(task, { key: k, depth: d, t0: performance.now() });
+    task.promise.then((res) => {
+      if (botThink !== task) return;
+      botThink = null;
+      if (res) botPlan = { rule: st.rule, depth: d, path: res.path, keys: planKeys(st, res.path) };
+      render();
+    });
+  }
+  render();
+}
+// "Wait for me": a bot turn only starts after Continue; the bot then plays the whole turn
+let released = null;
+const botWaiting = () => $('botStep').checked && !(released && released.s === s && released.turn === s.turn);
+$('botGo').onclick = () => { released = { s, turn: s.turn }; render(); };
+$('botStep').onchange = () => { released = null; render(); };
+const botTurn = () => bots[s.rule] && s.phase !== 'over' && botOn[s.turn]();
+
+// ---- impossible throws: a throw without any legal move (or a benched player who is skipped) stays on
+// screen for 3/4 s, or until OK when it was a human's throw and "Confirm impossible throws" is on
+let logSeen = 0, pause = null, pauseTimer = null; // pause: { text, ack: waits for OK, until: time }
+function checkSkips() {
+  if (live) return;
+  if (s.log.length < logSeen) logSeen = s.log.length; // undo or new game
+  for (let i = logSeen; i < s.log.length; i++) {
+    const l = s.log[i], prev = s.log[i - 1] || '', who = l.startsWith(PLAYER_NAMES[0]) ? 0 : 1, name = PLAYER_NAMES[who];
+    let text = null;
+    if (/ is skipped$/.test(l)) text = l;
+    else if (/ cannot play /.test(l) && / rolls /.test(prev)) text = `${name} rolled ${prev.split(' rolls ')[1]}: no legal move`;
+    else if (/ cannot play /.test(l) && / walks /.test(prev)) text = `${name} cannot walk ${prev.split(' walks ')[1]}: no legal move`;
+    if (text) pause = { text, ack: $('ackSkip').checked && !botOn[who](), until: performance.now() + 750 };
+  }
+  logSeen = s.log.length;
+}
+const ackSkip = () => { if (pause) { pause = null; render(); } };
+$('skipOk').onclick = ackSkip;
+$('ackSkip').onchange = () => { if (pause && !$('ackSkip').checked) { pause.ack = false; render(); } };
+
+// while a search runs, its elapsed time and progress are refreshed twice a second
+let ticker = null;
+const searching = () => botThink || (an && an.deep && !an.best) || records.some((r) => r.pending) || reviewing;
+function tick() {
+  ticker = null;
+  $('status').textContent = statusText();
+  renderAnalysis();
+  if (searching()) ticker = setTimeout(tick, 500);
+}
+
+let rollTimer = null;
+const baseRender = render;
+render = function () {
+  snapshot();
+  checkSkips();
+  curSeg();
+  ensureAnalysis();
+  if (pause && !pause.ack && performance.now() >= pause.until) pause = null;
+  baseRender();
+  if (!ticker && searching()) ticker = setTimeout(tick, 500);
+  if (live) return;
+  // a bot search for a position that is gone (or at another depth) is stopped
+  if (botThink && (!botTurn() || BotLib.key(s) !== botThink.key || botDepth() !== botThink.depth)) { botThink.cancel(); botThink = null; }
+  $('botGo').style.display = botTurn() && botWaiting() ? '' : 'none';
+  if (botTurn() && botWaiting()) return;
+  if (pause) { // nothing moves on while an impossible throw is shown
+    if (!pause.ack && !pauseTimer) pauseTimer = setTimeout(() => { pauseTimer = null; render(); }, pause.until - performance.now());
+    return;
+  }
+  if (!botTimer && !botThink && botTurn()) botTimer = setTimeout(botStep, 500);
+  else if (!rollTimer && s.phase === 'roll' && !botTurn()) {
+    rollTimer = setTimeout(() => {
+      rollTimer = null;
+      if (live || s.phase !== 'roll' || botTurn() || pause) return;
+      hist = []; sel = null;
+      BG.roll(s);
+      render();
+    }, 400);
+  }
+};
+$('resign').onclick = () => {
+  if (live || s.phase === 'over') return;
+  const bot = (q) => bots[s.rule] && botOn[q]();
+  const p = bot(s.turn) && !bot(1 - s.turn) ? 1 - s.turn : s.turn;
+  if (!confirm(`${PLAYER_NAMES[p]} resigns?`)) return;
+  BG.resign(s, p);
+  sel = null; hist = []; seg = null;
+  render();
+};
+
+// ---- analysis ----
+const pct = (v) => `${(v * 100).toFixed(1)}%`;
+const curDepth = () => +$('depth').value;
+const segValid = (g) => g && s.phase !== 'over' && g.rolls === s.rolls && g.phase === s.phase && g.turn === s.turn;
+
+// The human's current move/walk segment; its start state is what gets analysed and later scored.
+function curSeg() {
+  if (s.phase !== 'move' && s.phase !== 'walk') return (seg = null);
+  if (!segValid(seg)) seg = botTurn() ? null : { rolls: s.rolls, phase: s.phase, turn: s.turn, start: clone(s) };
+  return seg;
+}
+
+function runSliced(gen, onDone, cancelled) {
+  const step = () => {
+    if (cancelled()) return;
+    const t0 = performance.now();
+    do {
+      const r = gen.next();
+      if (r.done) return onDone(r.value);
+    } while (performance.now() - t0 < 30);
+    setTimeout(step, 0);
+  };
+  step();
+}
+
+// an analysis that is no longer shown stops, unless a finished move still waits for its result
+function dropAnalysis(a) {
+  if (!a) return;
+  a.cancel = true;
+  if (a.task && !a.keep) a.task.cancel();
+}
+
+// Depth 1 and 2: every end of the segment is scored (time-sliced on the page). Depth 3 and 4: only the
+// best move is searched (in the pool, with cutoffs); finishSeg adds the move actually played.
+function ensureAnalysis() {
+  const g = curSeg();
+  if (!$('an').checked || !g || !nets[s.rule]) { dropAnalysis(an); an = null; return; }
+  const depth = curDepth();
+  if (an && an.seg === g && an.depth === depth) return;
+  dropAnalysis(an);
+  an = null;
+  if (depth >= 3) {
+    if (!deepReady()) return; // render runs again once the module is loaded
+    const a = an = { seg: g, depth, deep: true, best: null, done: 0, n: 0, t0: performance.now() };
+    a.task = pool.best(s.rule, nets[s.rule], g.start, depth, PRI_AN, (done, n) => { a.done = done; a.n = n; });
+    a.task.promise.then((res) => {
+      a.time = secs(a.t0);
+      a.best = res && Object.assign(res, { keys: planKeys(g.start, res.path) });
+      if (an === a) render();
+    });
+    return;
+  }
+  const a = an = { seg: g, depth, res: null, vals: null, cancel: false };
+  runSliced(AnalysisLib.analyze(nets[s.rule], BotLib.cloneState(g.start), depth), (res) => {
+    a.res = res;
+    a.vals = new Map(res.map((r) => [r.key, r.value]));
+    render();
+  }, () => a.cancel);
+}
+
+// all ways to finish the current segment from the present position, best first
+function curPlans() {
+  if (!an || !an.vals) return null;
+  const k = BotLib.key(s);
+  if (an.planKey !== k) {
+    an.planKey = k;
+    an.plans = BotLib.endStates(BotLib.cloneState(s))
+      .map((e) => ({ path: e.path, value: an.vals.get(BotLib.key(e.s)) }))
+      .filter((x) => x.value !== undefined)
+      .sort((x, y) => y.value - x.value);
+  }
+  return an.plans;
+}
+
+// the best move from the present position and the value of best play: { move, value } or null.
+// Depth 3+: the value is that of the segment start; move is null once the best plan was left.
+function bestNow() {
+  if (!an) return null;
+  if (!an.deep) {
+    const pl = curPlans();
+    return pl && pl.length ? { move: pl[0].path[0], value: pl[0].value } : null;
+  }
+  const b = an.best;
+  if (!b) return null;
+  const i = b.keys.indexOf(BotLib.key(s));
+  return { move: i >= 0 ? b.path[i] : null, value: b.value };
+}
+
+function destValue(seq) {
+  const c = BotLib.cloneState(s);
+  for (const m of seq) BG.applyMove(c, m);
+  // the sequence already ended the turn: c is the finished position, not a segment to extend
+  if (c.turn !== s.turn || (c.phase !== 'move' && c.phase !== 'walk')) return an.vals.get(BotLib.key(c));
+  let best = -1;
+  for (const e of BotLib.endStates(c)) {
+    const v = an.vals.get(BotLib.key(e.s));
+    if (v > best) best = v;
+  }
+  return best;
+}
+
+const planText = (path) => path.map((m) => `${m.from}${m.back ? '←' : '→'}${m.to}`).join(' ');
+
+const lossText = (rec, v, best) => `${PLAYER_NAMES[rec.player]}'s last move: ` +
+  (rec.loss < 1e-9 ? `best move (${pct(v)})` : `lost ${pct(rec.loss)} (${pct(v)} vs best ${pct(best)})`);
+
+// loss of a move at depth 3+: the best move's value minus the played end's (searched now, in the pool)
+function deepLoss(rec, bestTask, depth, pri) {
+  const net = nets[s.rule];
+  rec.pending = true;
+  const one = pool.value(s.rule, net, rec.end, rec.player, depth, pri);
+  return Promise.all([bestTask.promise, one.promise]).then(([b, v]) => {
+    rec.pending = false;
+    if (!b) return null;
+    const best = b.key === rec.endKey ? v : b.value;
+    rec.loss = Math.max(0, best - v);
+    rec.depth = depth;
+    return { v, best };
+  });
+}
+
+function finishSeg(g) {
+  const rec = { player: g.turn, start: g.start, end: BotLib.cloneState(s), endKey: BotLib.key(s), loss: null, depth: 0 };
+  records.push(rec);
+  if (an && an.seg === g && an.deep) {
+    an.keep = true;
+    const name = PLAYER_NAMES[rec.player];
+    lastInfo = `${name}'s last move: evaluating at depth ${an.depth}…`;
+    deepLoss(rec, an.task, an.depth, PRI_AN).then((r) => {
+      if (records[records.length - 1] === rec && r) lastInfo = lossText(rec, r.v, r.best);
+      renderAnalysis();
+    });
+  } else if (an && an.seg === g && an.vals && an.vals.has(rec.endKey)) {
+    const best = an.res[0].value, v = an.vals.get(rec.endKey);
+    rec.loss = Math.max(0, best - v);
+    rec.depth = an.depth;
+    lastInfo = lossText(rec, v, best);
+  } else {
+    lastInfo = '';
+  }
+}
+
+function renderAnalysis() {
+  const on = $('an').checked;
+  renderEval(on);
+  renderReplay();
+  let h = '';
+  if (on && !an && curDepth() >= 3 && curSeg() && !deepReady()) h = 'Loading the search module…';
+  else if (on && an && an.deep) {
+    const b = an.best;
+    if (!b) h = `Analyzing at depth ${an.depth}… ${an.n ? `${an.done}/${an.n} moves, ` : ''}${secs(an.t0)} s`;
+    else h = `Your winning chance: ${pct(b.value)}<br><div class="best">${pct(b.value)} (best) ${planText(b.path) || '-'}</div>` +
+      `<div class="hint">Depth ${an.depth}: only the best move and the move you play are searched (${b.n} possible, ${an.time} s).</div>`;
+  } else if (on && an && !an.vals) h = 'Analyzing…';
+  else if (on && an) {
+    const plans = curPlans();
+    if (plans && plans.length) {
+      h = `Your winning chance: ${pct(plans[0].value)}<br>` + plans.slice(0, 5).map((pl, i) =>
+        `<div class="${i === 0 ? 'best' : ''}">${pct(pl.value)} (${i ? '-' + pct(plans[0].value - pl.value) : 'best'}) ${planText(pl.path) || '-'}</div>`).join('');
+    }
+  }
+  $('anlist').innerHTML = h;
+  $('lastinfo').textContent = on ? lastInfo : '';
+  const parts = [];
+  for (const q of [0, 1]) {
+    const mine = records.filter((r) => r.player === q), done = mine.filter((r) => r.loss !== null);
+    if (!mine.length) continue;
+    if (!done.length) { parts.push(`${PLAYER_NAMES[q]}: ${mine.length} moves, not evaluated`); continue; }
+    const tot = done.reduce((a, r) => a + r.loss, 0);
+    const depths = Array.from(new Set(done.map((r) => r.depth))).join('/');
+    parts.push(`${PLAYER_NAMES[q]}: avg lost score ${pct(tot / done.length)} per move, total ${pct(tot)} (${done.length}/${mine.length} moves, depth ${depths})`);
+  }
+  $('stats').innerHTML = parts.join('<br>');
+  $('review').disabled = !records.length || !!reviewing || !nets[s.rule];
+}
+
+// Re-scores every recorded move of this game at the selected depth.
+$('review').onclick = () => {
+  const net = nets[s.rule];
+  if (!net || !records.length) return;
+  const depth = curDepth(), token = reviewing = { cancel: false };
+  let i = 0;
+  const next = () => {
+    if (token.cancel) return;
+    if (i >= records.length) { reviewing = null; $('revinfo').textContent = ''; return renderAnalysis(); }
+    $('revinfo').textContent = `Evaluating ${i + 1}/${records.length} at depth ${depth}…`;
+    const r = records[i];
+    if (depth >= 3) {
+      if (!deepReady()) { reviewing = null; $('revinfo').textContent = 'The search module is not loaded'; return renderAnalysis(); }
+      const best = pool.best(s.rule, net, r.start, depth, PRI_REVIEW);
+      token.task = best;
+      return deepLoss(r, best, depth, PRI_REVIEW).then(() => {
+        if (token.cancel) return;
+        i++;
+        renderAnalysis();
+        next();
+      });
+    }
+    runSliced(AnalysisLib.analyze(net, BotLib.cloneState(r.start), depth), (res) => {
+      const mine = res.find((x) => x.key === r.endKey);
+      r.loss = mine ? Math.max(0, res[0].value - mine.value) : null;
+      r.depth = depth;
+      i++;
+      renderAnalysis();
+      next();
+    }, () => token.cancel);
+  };
+  renderAnalysis();
+  next();
+};
+// ---- replay: every roll and single move is kept; viewing swaps s for a copy (read-only) ----
+function snapshot() {
+  if (live) return;
+  const n = s.log.length;
+  while (timeline.length && timeline[timeline.length - 1].n > n) timeline.pop();
+  const t = timeline[timeline.length - 1];
+  if (!t || t.n !== n) timeline.push({ n, st: clone(Object.assign({}, s, { log: [] })) });
+}
+function exitView() {
+  if (!live) return;
+  dropAnalysis(an);
+  s = live.s; sel = live.sel; hist = live.hist; seg = live.seg; an = live.an; live = null;
+  render();
+}
+function view(i) {
+  if (i >= timeline.length - 1) return exitView();
+  i = Math.max(0, i);
+  if (!live) live = { s, sel, hist, seg, an }; // the live analysis goes on meanwhile
+  else dropAnalysis(an);
+  an = null; seg = null; sel = null; hist = []; viewIdx = i;
+  s = clone(timeline[i].st); s.log = live.s.log.slice(0, timeline[i].n);
+  render();
+}
+const curIdx = () => (live ? viewIdx : timeline.length - 1);
+function renderReplay() {
+  const n = timeline.length, i = curIdx();
+  $('rSlider').max = Math.max(0, n - 1); $('rSlider').value = i;
+  $('repinfo').innerHTML = live ? `<span class="viewing">step ${i} / ${n - 1} (history, read-only)</span>` : `step ${i} / ${Math.max(0, n - 1)} (live)`;
+  $('rFirst').disabled = $('rPrev').disabled = i <= 0;
+  $('rNext').disabled = $('rLive').disabled = !live;
+}
+$('rFirst').onclick = () => view(0);
+$('rPrev').onclick = () => view(curIdx() - 1);
+$('rNext').onclick = () => view(curIdx() + 1);
+$('rLive').onclick = exitView;
+$('rSlider').oninput = () => view(+$('rSlider').value);
+$('log').addEventListener('click', (e) => {
+  const d = e.target.closest('[data-i]');
+  if (!d) return;
+  const t = timeline.findIndex((x) => x.n >= +d.dataset.i + 1);
+  if (t >= 0) view(t);
+});
+document.addEventListener('keydown', (e) => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && e.target.type !== 'checkbox') return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); view(curIdx() - 1); }
+  else if (e.key === 'ArrowRight' && live) { e.preventDefault(); view(viewIdx + 1); }
+  else if (e.key === 'Escape') exitView();
+  else if (e.key === 'Enter' && pause && pause.ack && !live) { e.preventDefault(); ackSkip(); }
+});
+
+// ---- eval bar: White's winning chance on the position, and the loss of the last move ----
+function evalW() {
+  const net = nets[s.rule];
+  if (s.phase === 'over') return s.winner === 0 ? 1 : 0;
+  const b = bestNow();
+  if (b) return s.turn === 0 ? b.value : 1 - b.value; // best play of the side to move
+  if (s.phase === 'roll') return BotLib.valueFor(net, s, 0);
+  return null; // still analysing: keep the previous value
+}
+function renderEval(on) {
+  const ok = on && !!nets[s.rule];
+  $('evalcol').classList.toggle('on', ok);
+  $('evalnote').style.display = ok ? 'block' : 'none';
+  if (!ok) return;
+  const w = evalW();
+  if (w !== null) lastW = w;
+  const v = lastW === null ? 0.5 : lastW;
+  $('evalfill').style.height = `${v * 100}%`;
+  $('evalW').textContent = `W ${Math.round(v * 100)}%`;
+  $('evalB').textContent = `B ${Math.round((1 - v) * 100)}%`;
+  let note = `White ${pct(v)} · Black ${pct(1 - v)}${an && !(an.deep ? an.best : an.vals) ? ' (analysing…)' : ''}`;
+  let last = lastInfo;
+  if (live) {
+    const k = BotLib.key(s), r = records.find((x) => x.player === s.turn && BotLib.key(x.start) === k);
+    last = r ? (r.loss === null ? `${PLAYER_NAMES[r.player]}'s move from here was not evaluated` : lossText(r, 0, 0).replace(/ \(.*\)$/, '')) : '';
+  }
+  $('evalnote').innerHTML = note + `<br><span class="hint">${last || '&nbsp;'}</span>`; // second line always present: no layout jump
+}
+
+$('an').onchange = $('depth').onchange = $('bestHl').onchange = () => render();
+
+$('botW').onchange = $('botB').onchange = () => render();
+
+for (const k in RULES) $('rule').insertAdjacentHTML('beforeend', `<option value="${k}">${RULES[k].name}</option>`);
+fresh('paul');
+</script>
+</body>
+</html>

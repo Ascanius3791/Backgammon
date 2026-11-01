@@ -1,0 +1,554 @@
+game 16500  4s  tdErr 0.0018  plies 147  capped 1%
+game 18500  8s  tdErr 0.0018  plies 156  capped 2%
+game 20500  11s  tdErr 0.0018  plies 144  capped 1%
+game 22500  15s  tdErr 0.0019  plies 136  capped 0%
+game 24500  19s  tdErr 0.0019  plies 139  capped 1%
+game 26500  22s  tdErr 0.0020  plies 134  capped 1%
+game 28500  25s  tdErr 0.0020  plies 132  capped 1%
+game 30500  29s  tdErr 0.0020  plies 137  capped 1%
+game 32500  32s  tdErr 0.0020  plies 133  capped 1%
+game 34500  36s  tdErr 0.0021  plies 134  capped 1%  vs greedy: 1 (1 unfinished)
+game 36500  39s  tdErr 0.0021  plies 132  capped 0%
+game 38500  42s  tdErr 0.0021  plies 131  capped 0%
+game 40500  45s  tdErr 0.0022  plies 131  capped 0%
+game 42500  48s  tdErr 0.0022  plies 128  capped 0%
+game 44500  51s  tdErr 0.0022  plies 129  capped 0%
+game 46500  54s  tdErr 0.0022  plies 127  capped 1%
+game 48500  57s  tdErr 0.0021  plies 132  capped 1%
+game 50500  60s  tdErr 0.0022  plies 128  capped 0%
+game 52500  63s  tdErr 0.0022  plies 129  capped 0%
+game 54500  66s  tdErr 0.0022  plies 129  capped 0%  vs greedy: 1 (3 unfinished)
+game 56500  70s  tdErr 0.0022  plies 134  capped 1%
+game 58500  73s  tdErr 0.0021  plies 134  capped 1%
+game 60500  77s  tdErr 0.0023  plies 129  capped 0%
+game 62500  81s  tdErr 0.0022  plies 130  capped 0%
+game 64500  84s  tdErr 0.0022  plies 133  capped 1%
+game 66500  88s  tdErr 0.0021  plies 134  capped 0%
+game 68500  92s  tdErr 0.0023  plies 124  capped 0%
+game 70500  95s  tdErr 0.0023  plies 128  capped 0%
+game 72500  102s  tdErr 0.0025  plies 121  capped 0%
+game 74500  107s  tdErr 0.0023  plies 127  capped 0%  vs greedy: 1 (0 unfinished)
+game 76500  110s  tdErr 0.0022  plies 130  capped 1%
+game 78500  113s  tdErr 0.0023  plies 125  capped 0%
+game 80500  116s  tdErr 0.0024  plies 122  capped 0%
+game 82500  119s  tdErr 0.0024  plies 126  capped 0%
+game 84500  122s  tdErr 0.0024  plies 125  capped 1%
+game 86500  125s  tdErr 0.0024  plies 123  capped 0%
+game 88500  128s  tdErr 0.0024  plies 119  capped 0%
+game 90500  131s  tdErr 0.0025  plies 119  capped 0%
+game 92500  134s  tdErr 0.0024  plies 126  capped 0%
+game 94500  136s  tdErr 0.0024  plies 119  capped 0%  vs greedy: 0.95 (0 unfinished)
+game 96500  139s  tdErr 0.0025  plies 120  capped 0%
+game 98500  142s  tdErr 0.0024  plies 122  capped 0%
+game 100500  145s  tdErr 0.0024  plies 125  capped 0%
+game 102500  148s  tdErr 0.0023  plies 125  capped 1%
+game 104500  151s  tdErr 0.0025  plies 119  capped 0%
+game 106500  154s  tdErr 0.0024  plies 120  capped 0%
+game 108500  157s  tdErr 0.0024  plies 121  capped 0%
+game 110500  160s  tdErr 0.0024  plies 121  capped 0%
+game 112500  163s  tdErr 0.0024  plies 122  capped 0%
+game 114500  165s  tdErr 0.0025  plies 116  capped 0%  vs greedy: 1 (1 unfinished)
+game 116500  169s  tdErr 0.0024  plies 128  capped 0%
+game 118500  172s  tdErr 0.0024  plies 122  capped 0%
+game 120500  175s  tdErr 0.0024  plies 123  capped 1%
+game 122500  177s  tdErr 0.0025  plies 119  capped 0%
+game 124500  180s  tdErr 0.0024  plies 120  capped 0%
+game 126500  183s  tdErr 0.0025  plies 122  capped 0%
+game 128500  186s  tdErr 0.0025  plies 122  capped 1%
+game 130500  189s  tdErr 0.0024  plies 125  capped 1%
+game 132500  192s  tdErr 0.0024  plies 123  capped 1%
+game 134500  196s  tdErr 0.0024  plies 126  capped 1%  vs greedy: 1 (6 unfinished)
+game 136500  199s  tdErr 0.0024  plies 123  capped 1%
+game 138500  202s  tdErr 0.0024  plies 125  capped 1%
+game 140500  205s  tdErr 0.0024  plies 125  capped 1%
+game 142500  208s  tdErr 0.0024  plies 126  capped 1%
+game 144500  211s  tdErr 0.0024  plies 126  capped 1%
+game 146500  214s  tdErr 0.0025  plies 121  capped 1%
+game 148500  217s  tdErr 0.0025  plies 123  capped 1%
+game 150500  221s  tdErr 0.0024  plies 130  capped 2%
+game 152500  224s  tdErr 0.0023  plies 130  capped 2%
+game 154500  227s  tdErr 0.0023  plies 126  capped 1%  vs greedy: 1 (0 unfinished)
+game 156500  230s  tdErr 0.0024  plies 129  capped 2%
+game 158500  234s  tdErr 0.0022  plies 137  capped 2%
+game 160500  237s  tdErr 0.0023  plies 128  capped 2%
+game 162500  240s  tdErr 0.0025  plies 122  capped 1%
+game 164500  243s  tdErr 0.0025  plies 122  capped 2%
+game 166500  246s  tdErr 0.0025  plies 125  capped 2%
+game 168500  249s  tdErr 0.0024  plies 122  capped 1%
+game 170500  253s  tdErr 0.0023  plies 130  capped 2%
+game 172500  256s  tdErr 0.0024  plies 123  capped 1%
+game 174500  259s  tdErr 0.0024  plies 129  capped 2%  vs greedy: 1 (2 unfinished)
+game 176500  262s  tdErr 0.0023  plies 131  capped 2%
+game 178500  265s  tdErr 0.0023  plies 130  capped 2%
+game 180500  269s  tdErr 0.0023  plies 132  capped 2%
+game 182500  272s  tdErr 0.0023  plies 131  capped 2%
+game 184500  276s  tdErr 0.0023  plies 134  capped 2%
+game 186500  279s  tdErr 0.0023  plies 130  capped 3%
+game 188500  283s  tdErr 0.0024  plies 131  capped 3%
+game 190500  286s  tdErr 0.0023  plies 132  capped 3%
+game 192500  290s  tdErr 0.0022  plies 139  capped 3%
+game 194500  293s  tdErr 0.0024  plies 128  capped 2%  vs greedy: 1 (5 unfinished)
+game 196500  297s  tdErr 0.0023  plies 132  capped 3%
+game 198500  300s  tdErr 0.0023  plies 135  capped 3%
+game 200500  304s  tdErr 0.0022  plies 133  capped 3%
+game 202500  307s  tdErr 0.0024  plies 128  capped 2%
+game 204500  311s  tdErr 0.0023  plies 128  capped 3%
+game 206500  314s  tdErr 0.0025  plies 123  capped 2%
+game 208500  317s  tdErr 0.0024  plies 125  capped 2%
+game 210500  320s  tdErr 0.0026  plies 117  capped 2%
+game 212500  323s  tdErr 0.0024  plies 125  capped 2%
+game 214500  327s  tdErr 0.0024  plies 128  capped 3%  vs greedy: 1 (1 unfinished)
+game 216500  330s  tdErr 0.0024  plies 124  capped 2%
+game 218500  333s  tdErr 0.0024  plies 125  capped 2%
+game 220500  336s  tdErr 0.0025  plies 127  capped 3%
+game 222500  340s  tdErr 0.0024  plies 129  capped 3%
+game 224500  343s  tdErr 0.0024  plies 128  capped 2%
+game 226500  346s  tdErr 0.0024  plies 128  capped 3%
+game 228500  350s  tdErr 0.0024  plies 130  capped 4%
+game 230500  354s  tdErr 0.0023  plies 134  capped 4%
+game 232500  358s  tdErr 0.0022  plies 139  capped 4%
+game 234500  362s  tdErr 0.0022  plies 137  capped 4%  vs greedy: 1 (1 unfinished)
+game 236500  365s  tdErr 0.0023  plies 131  capped 4%
+game 238500  369s  tdErr 0.0023  plies 134  capped 5%
+game 240500  372s  tdErr 0.0023  plies 133  capped 4%
+game 242500  376s  tdErr 0.0023  plies 129  capped 3%
+game 244500  380s  tdErr 0.0022  plies 135  capped 4%
+game 246500  385s  tdErr 0.0023  plies 133  capped 4%
+game 248500  390s  tdErr 0.0023  plies 135  capped 4%
+game 250500  396s  tdErr 0.0021  plies 143  capped 5%
+game 252500  405s  tdErr 0.0024  plies 128  capped 2%
+game 254500  417s  tdErr 0.0023  plies 133  capped 4%  vs greedy: 1 (2 unfinished)
+game 256500  429s  tdErr 0.0023  plies 133  capped 4%
+game 258500  441s  tdErr 0.0022  plies 142  capped 5%
+game 260500  454s  tdErr 0.0022  plies 136  capped 4%
+game 262500  460s  tdErr 0.0023  plies 130  capped 3%
+game 264500  466s  tdErr 0.0026  plies 119  capped 2%
+game 266500  471s  tdErr 0.0024  plies 129  capped 3%
+game 268500  474s  tdErr 0.0026  plies 120  capped 2%
+game 270500  478s  tdErr 0.0024  plies 125  capped 3%
+game 272500  481s  tdErr 0.0024  plies 125  capped 2%
+game 274500  485s  tdErr 0.0024  plies 125  capped 2%  vs greedy: 1 (0 unfinished)
+game 276500  489s  tdErr 0.0024  plies 126  capped 2%
+game 278500  492s  tdErr 0.0025  plies 119  capped 2%
+game 280500  496s  tdErr 0.0026  plies 119  capped 2%
+game 282500  499s  tdErr 0.0025  plies 121  capped 2%
+game 284500  503s  tdErr 0.0025  plies 120  capped 2%
+game 286500  506s  tdErr 0.0024  plies 128  capped 3%
+game 288500  510s  tdErr 0.0024  plies 127  capped 3%
+game 290500  513s  tdErr 0.0026  plies 117  capped 2%
+game 292500  516s  tdErr 0.0026  plies 118  capped 2%
+game 294500  521s  tdErr 0.0025  plies 125  capped 3%  vs greedy: 1 (0 unfinished)
+game 296500  524s  tdErr 0.0025  plies 122  capped 2%
+game 298500  528s  tdErr 0.0025  plies 119  capped 2%
+game 300500  531s  tdErr 0.0024  plies 124  capped 2%
+game 302500  534s  tdErr 0.0025  plies 123  capped 2%
+game 304500  538s  tdErr 0.0025  plies 122  capped 2%
+game 306500  541s  tdErr 0.0025  plies 121  capped 2%
+game 308500  544s  tdErr 0.0027  plies 119  capped 1%
+game 310500  547s  tdErr 0.0026  plies 117  capped 2%
+game 312500  551s  tdErr 0.0025  plies 124  capped 2%
+game 314500  554s  tdErr 0.0026  plies 117  capped 1%  vs greedy: 1 (1 unfinished)
+game 316500  557s  tdErr 0.0026  plies 117  capped 2%
+game 318500  561s  tdErr 0.0027  plies 113  capped 2%
+game 320500  564s  tdErr 0.0026  plies 120  capped 2%
+game 322500  568s  tdErr 0.0026  plies 120  capped 2%
+game 324500  571s  tdErr 0.0024  plies 127  capped 2%
+game 326500  575s  tdErr 0.0025  plies 121  capped 2%
+game 328500  578s  tdErr 0.0024  plies 129  capped 3%
+game 330500  582s  tdErr 0.0025  plies 127  capped 3%
+game 332500  586s  tdErr 0.0024  plies 126  capped 3%
+game 334500  589s  tdErr 0.0025  plies 120  capped 3%  vs greedy: 1 (2 unfinished)
+game 336500  592s  tdErr 0.0025  plies 123  capped 3%
+game 338500  596s  tdErr 0.0025  plies 120  capped 2%
+game 340500  599s  tdErr 0.0025  plies 120  capped 2%
+game 342500  602s  tdErr 0.0026  plies 117  capped 2%
+game 344500  606s  tdErr 0.0025  plies 126  capped 3%
+game 346500  609s  tdErr 0.0025  plies 127  capped 2%
+game 348500  613s  tdErr 0.0025  plies 118  capped 2%
+game 350500  616s  tdErr 0.0027  plies 114  capped 2%
+game 352500  619s  tdErr 0.0025  plies 120  capped 2%
+game 354500  623s  tdErr 0.0026  plies 121  capped 3%  vs greedy: 1 (1 unfinished)
+game 356500  626s  tdErr 0.0025  plies 122  capped 3%
+game 358500  629s  tdErr 0.0025  plies 123  capped 3%
+game 360500  633s  tdErr 0.0023  plies 131  capped 4%
+game 362500  636s  tdErr 0.0025  plies 120  capped 2%
+game 364500  639s  tdErr 0.0026  plies 117  capped 2%
+game 366500  642s  tdErr 0.0026  plies 120  capped 3%
+game 368500  645s  tdErr 0.0027  plies 116  capped 3%
+game 370500  649s  tdErr 0.0025  plies 122  capped 3%
+game 372500  652s  tdErr 0.0026  plies 117  capped 2%
+game 374500  655s  tdErr 0.0026  plies 114  capped 2%  vs greedy: 1 (1 unfinished)
+game 376500  658s  tdErr 0.0024  plies 127  capped 2%
+game 378500  662s  tdErr 0.0026  plies 119  capped 3%
+game 380500  665s  tdErr 0.0024  plies 127  capped 3%
+game 382500  668s  tdErr 0.0026  plies 118  capped 3%
+game 384500  672s  tdErr 0.0026  plies 118  capped 2%
+game 386500  675s  tdErr 0.0026  plies 120  capped 1%
+game 388500  678s  tdErr 0.0025  plies 124  capped 3%
+game 390500  681s  tdErr 0.0027  plies 116  capped 2%
+game 392500  685s  tdErr 0.0025  plies 124  capped 3%
+game 394500  688s  tdErr 0.0026  plies 118  capped 2%  vs greedy: 1 (0 unfinished)
+game 396500  691s  tdErr 0.0026  plies 117  capped 3%
+game 398500  694s  tdErr 0.0027  plies 113  capped 2%
+game 400500  697s  tdErr 0.0026  plies 121  capped 3%
+game 402500  701s  tdErr 0.0024  plies 129  capped 3%
+game 404500  705s  tdErr 0.0025  plies 125  capped 3%
+game 406500  709s  tdErr 0.0024  plies 130  capped 4%
+game 408500  712s  tdErr 0.0023  plies 131  capped 4%
+game 410500  716s  tdErr 0.0025  plies 122  capped 3%
+game 412500  719s  tdErr 0.0025  plies 123  capped 3%
+game 414500  723s  tdErr 0.0024  plies 125  capped 3%  vs greedy: 1 (1 unfinished)
+game 416500  726s  tdErr 0.0025  plies 124  capped 2%
+game 418500  729s  tdErr 0.0027  plies 116  capped 2%
+game 420500  732s  tdErr 0.0026  plies 119  capped 2%
+game 422500  735s  tdErr 0.0025  plies 123  capped 3%
+game 424500  739s  tdErr 0.0025  plies 127  capped 3%
+game 426500  742s  tdErr 0.0025  plies 122  capped 3%
+game 428500  746s  tdErr 0.0026  plies 120  capped 2%
+game 430500  749s  tdErr 0.0026  plies 117  capped 2%
+game 432500  752s  tdErr 0.0025  plies 122  capped 3%
+game 434500  757s  tdErr 0.0024  plies 124  capped 3%  vs greedy: 1 (2 unfinished)
+game 436500  760s  tdErr 0.0025  plies 122  capped 3%
+game 438500  764s  tdErr 0.0027  plies 115  capped 2%
+game 440500  767s  tdErr 0.0027  plies 115  capped 2%
+game 442500  770s  tdErr 0.0026  plies 120  capped 2%
+game 444500  773s  tdErr 0.0026  plies 116  capped 2%
+game 446500  776s  tdErr 0.0027  plies 112  capped 2%
+game 448500  780s  tdErr 0.0026  plies 120  capped 2%
+game 450500  783s  tdErr 0.0025  plies 121  capped 2%
+game 452500  786s  tdErr 0.0026  plies 120  capped 2%
+game 454500  789s  tdErr 0.0028  plies 109  capped 2%  vs greedy: 1 (1 unfinished)
+game 456500  792s  tdErr 0.0027  plies 112  capped 1%
+game 458500  795s  tdErr 0.0028  plies 113  capped 2%
+game 460500  798s  tdErr 0.0028  plies 110  capped 1%
+game 462500  801s  tdErr 0.0028  plies 110  capped 2%
+game 464500  804s  tdErr 0.0027  plies 114  capped 2%
+game 466500  807s  tdErr 0.0027  plies 114  capped 1%
+game 468500  810s  tdErr 0.0025  plies 121  capped 3%
+game 470500  814s  tdErr 0.0028  plies 113  capped 2%
+game 472500  817s  tdErr 0.0027  plies 116  capped 2%
+game 474500  820s  tdErr 0.0027  plies 115  capped 2%  vs greedy: 1 (1 unfinished)
+game 476500  823s  tdErr 0.0026  plies 116  capped 2%
+game 478500  826s  tdErr 0.0026  plies 119  capped 2%
+game 480500  829s  tdErr 0.0026  plies 118  capped 2%
+game 482500  833s  tdErr 0.0025  plies 126  capped 3%
+game 484500  837s  tdErr 0.0026  plies 119  capped 2%
+game 486500  840s  tdErr 0.0026  plies 119  capped 2%
+game 488500  844s  tdErr 0.0025  plies 124  capped 3%
+game 490500  847s  tdErr 0.0026  plies 118  capped 3%
+game 492500  850s  tdErr 0.0026  plies 118  capped 2%
+game 494500  854s  tdErr 0.0025  plies 121  capped 3%  vs greedy: 1 (1 unfinished)
+game 496500  857s  tdErr 0.0027  plies 116  capped 2%
+game 498500  860s  tdErr 0.0027  plies 116  capped 2%
+game 500500  863s  tdErr 0.0027  plies 115  capped 2%
+game 502500  866s  tdErr 0.0027  plies 116  capped 2%
+game 504500  869s  tdErr 0.0026  plies 117  capped 1%
+game 506500  872s  tdErr 0.0026  plies 116  capped 2%
+game 508500  875s  tdErr 0.0027  plies 112  capped 2%
+game 510500  878s  tdErr 0.0027  plies 115  capped 2%
+game 512500  881s  tdErr 0.0026  plies 119  capped 2%
+game 514500  885s  tdErr 0.0026  plies 119  capped 2%  vs greedy: 1 (0 unfinished)
+game 516500  888s  tdErr 0.0026  plies 114  capped 1%
+game 518500  891s  tdErr 0.0027  plies 117  capped 2%
+game 520500  894s  tdErr 0.0027  plies 113  capped 1%
+game 522500  897s  tdErr 0.0026  plies 117  capped 2%
+game 524500  900s  tdErr 0.0026  plies 116  capped 2%
+game 526500  903s  tdErr 0.0028  plies 112  capped 1%
+game 528500  906s  tdErr 0.0027  plies 113  capped 2%
+game 530500  909s  tdErr 0.0028  plies 109  capped 1%
+game 532500  912s  tdErr 0.0027  plies 112  capped 1%
+game 534500  915s  tdErr 0.0028  plies 110  capped 1%  vs greedy: 1 (1 unfinished)
+game 536500  918s  tdErr 0.0028  plies 112  capped 1%
+game 538500  921s  tdErr 0.0027  plies 111  capped 1%
+game 540500  924s  tdErr 0.0025  plies 117  capped 2%
+game 542500  927s  tdErr 0.0025  plies 120  capped 2%
+game 544500  930s  tdErr 0.0027  plies 114  capped 1%
+game 546500  934s  tdErr 0.0027  plies 116  capped 2%
+game 548500  937s  tdErr 0.0027  plies 112  capped 1%
+game 550500  940s  tdErr 0.0028  plies 110  capped 1%
+game 552500  943s  tdErr 0.0028  plies 112  capped 1%
+game 554500  946s  tdErr 0.0028  plies 110  capped 2%  vs greedy: 1 (0 unfinished)
+game 556500  948s  tdErr 0.0029  plies 108  capped 1%
+game 558500  952s  tdErr 0.0026  plies 118  capped 2%
+game 560500  955s  tdErr 0.0027  plies 115  capped 2%
+game 562500  958s  tdErr 0.0027  plies 112  capped 2%
+game 564500  961s  tdErr 0.0027  plies 115  capped 2%
+game 566500  965s  tdErr 0.0027  plies 114  capped 2%
+game 568500  968s  tdErr 0.0026  plies 117  capped 2%
+game 570500  972s  tdErr 0.0026  plies 116  capped 2%
+game 572500  975s  tdErr 0.0028  plies 112  capped 2%
+game 574500  978s  tdErr 0.0026  plies 119  capped 3%  vs greedy: 1 (1 unfinished)
+game 576500  982s  tdErr 0.0027  plies 115  capped 2%
+game 578500  985s  tdErr 0.0027  plies 114  capped 1%
+game 580500  988s  tdErr 0.0026  plies 115  capped 2%
+game 582500  991s  tdErr 0.0028  plies 109  capped 1%
+game 584500  994s  tdErr 0.0029  plies 107  capped 1%
+game 586500  997s  tdErr 0.0028  plies 112  capped 1%
+game 588500  1000s  tdErr 0.0026  plies 118  capped 2%
+game 590500  1003s  tdErr 0.0027  plies 113  capped 1%
+game 592500  1006s  tdErr 0.0027  plies 113  capped 1%
+game 594500  1009s  tdErr 0.0027  plies 113  capped 2%  vs greedy: 1 (0 unfinished)
+game 596500  1013s  tdErr 0.0027  plies 112  capped 1%
+game 598500  1016s  tdErr 0.0027  plies 114  capped 2%
+game 600500  1020s  tdErr 0.0028  plies 113  capped 1%
+game 602500  1024s  tdErr 0.0029  plies 109  capped 1%
+game 604500  1027s  tdErr 0.0028  plies 108  capped 1%
+game 606500  1031s  tdErr 0.0028  plies 112  capped 1%
+game 608500  1035s  tdErr 0.0028  plies 113  capped 1%
+game 610500  1038s  tdErr 0.0027  plies 115  capped 1%
+game 612500  1041s  tdErr 0.0027  plies 110  capped 1%
+game 614500  1044s  tdErr 0.0028  plies 109  capped 1%  vs greedy: 1 (0 unfinished)
+game 616500  1047s  tdErr 0.0027  plies 115  capped 1%
+game 618500  1050s  tdErr 0.0027  plies 112  capped 2%
+game 620500  1053s  tdErr 0.0026  plies 116  capped 2%
+game 622500  1056s  tdErr 0.0028  plies 108  capped 1%
+game 624500  1059s  tdErr 0.0027  plies 116  capped 2%
+game 626500  1062s  tdErr 0.0029  plies 107  capped 1%
+game 628500  1065s  tdErr 0.0029  plies 106  capped 1%
+game 630500  1068s  tdErr 0.0029  plies 105  capped 0%
+game 632500  1071s  tdErr 0.0029  plies 107  capped 1%
+game 634500  1074s  tdErr 0.0028  plies 111  capped 2%  vs greedy: 1 (0 unfinished)
+game 636500  1077s  tdErr 0.0027  plies 111  capped 2%
+game 638500  1080s  tdErr 0.0028  plies 111  capped 1%
+game 640500  1083s  tdErr 0.0028  plies 110  capped 1%
+game 642500  1086s  tdErr 0.0027  plies 116  capped 2%
+game 644500  1089s  tdErr 0.0028  plies 111  capped 1%
+game 646500  1092s  tdErr 0.0028  plies 110  capped 2%
+game 648500  1096s  tdErr 0.0028  plies 115  capped 1%
+game 650500  1099s  tdErr 0.0028  plies 109  capped 1%
+game 652500  1102s  tdErr 0.0029  plies 111  capped 2%
+game 654500  1105s  tdErr 0.0028  plies 110  capped 1%  vs greedy: 1 (0 unfinished)
+game 656500  1108s  tdErr 0.0029  plies 109  capped 1%
+game 658500  1111s  tdErr 0.0027  plies 115  capped 2%
+game 660500  1113s  tdErr 0.0029  plies 104  capped 1%
+game 662500  1116s  tdErr 0.0029  plies 105  capped 1%
+game 664500  1119s  tdErr 0.0028  plies 108  capped 1%
+game 666500  1122s  tdErr 0.0028  plies 109  capped 1%
+game 668500  1125s  tdErr 0.0027  plies 115  capped 2%
+game 670500  1128s  tdErr 0.0029  plies 107  capped 1%
+game 672500  1131s  tdErr 0.0029  plies 105  capped 1%
+game 674500  1134s  tdErr 0.0027  plies 115  capped 2%  vs greedy: 1 (0 unfinished)
+game 676500  1137s  tdErr 0.0028  plies 110  capped 2%
+game 678500  1140s  tdErr 0.0027  plies 118  capped 3%
+game 680500  1143s  tdErr 0.0028  plies 112  capped 1%
+game 682500  1146s  tdErr 0.0028  plies 110  capped 1%
+game 684500  1149s  tdErr 0.0029  plies 101  capped 0%
+game 686500  1152s  tdErr 0.0029  plies 108  capped 1%
+game 688500  1155s  tdErr 0.0029  plies 107  capped 1%
+game 690500  1158s  tdErr 0.0028  plies 110  capped 1%
+game 692500  1161s  tdErr 0.0029  plies 107  capped 1%
+game 694500  1164s  tdErr 0.0028  plies 106  capped 2%  vs greedy: 1 (0 unfinished)
+game 696500  1167s  tdErr 0.0030  plies 103  capped 1%
+game 698500  1170s  tdErr 0.0029  plies 106  capped 0%
+game 700500  1172s  tdErr 0.0030  plies 104  capped 0%
+game 702500  1176s  tdErr 0.0027  plies 115  capped 2%
+game 704500  1178s  tdErr 0.0029  plies 103  capped 1%
+game 706500  1181s  tdErr 0.0028  plies 110  capped 1%
+game 708500  1184s  tdErr 0.0029  plies 106  capped 1%
+game 710500  1187s  tdErr 0.0029  plies 106  capped 1%
+game 712500  1190s  tdErr 0.0029  plies 105  capped 1%
+game 714500  1193s  tdErr 0.0029  plies 106  capped 1%  vs greedy: 1 (0 unfinished)
+game 716500  1196s  tdErr 0.0028  plies 114  capped 2%
+game 718500  1199s  tdErr 0.0030  plies 101  capped 1%
+game 720500  1201s  tdErr 0.0029  plies 109  capped 2%
+game 722500  1204s  tdErr 0.0029  plies 107  capped 1%
+game 724500  1207s  tdErr 0.0029  plies 105  capped 1%
+game 726500  1210s  tdErr 0.0029  plies 108  capped 1%
+game 728500  1213s  tdErr 0.0030  plies 103  capped 1%
+game 730500  1216s  tdErr 0.0029  plies 106  capped 2%
+game 732500  1219s  tdErr 0.0029  plies 108  capped 1%
+game 734500  1222s  tdErr 0.0028  plies 110  capped 1%  vs greedy: 0.95 (0 unfinished)
+game 736500  1224s  tdErr 0.0029  plies 110  capped 1%
+game 738500  1227s  tdErr 0.0029  plies 107  capped 1%
+game 740500  1230s  tdErr 0.0028  plies 113  capped 2%
+game 742500  1234s  tdErr 0.0028  plies 115  capped 2%
+game 744500  1237s  tdErr 0.0027  plies 112  capped 1%
+game 746500  1240s  tdErr 0.0028  plies 112  capped 2%
+game 748500  1244s  tdErr 0.0029  plies 108  capped 1%
+game 750500  1247s  tdErr 0.0030  plies 102  capped 1%
+game 752500  1250s  tdErr 0.0030  plies 101  capped 0%
+game 754500  1253s  tdErr 0.0029  plies 104  capped 1%  vs greedy: 1 (0 unfinished)
+game 756500  1257s  tdErr 0.0029  plies 106  capped 1%
+game 758500  1260s  tdErr 0.0031  plies 99  capped 0%
+game 760500  1264s  tdErr 0.0029  plies 109  capped 1%
+game 762500  1267s  tdErr 0.0029  plies 106  capped 1%
+game 764500  1270s  tdErr 0.0029  plies 104  capped 1%
+game 766500  1274s  tdErr 0.0030  plies 103  capped 1%
+game 768500  1277s  tdErr 0.0027  plies 116  capped 2%
+game 770500  1280s  tdErr 0.0030  plies 102  capped 1%
+game 772500  1283s  tdErr 0.0029  plies 105  capped 1%
+game 774500  1286s  tdErr 0.0029  plies 102  capped 1%  vs greedy: 1 (0 unfinished)
+game 776500  1289s  tdErr 0.0028  plies 110  capped 1%
+game 778500  1292s  tdErr 0.0028  plies 107  capped 1%
+game 780500  1295s  tdErr 0.0030  plies 108  capped 1%
+game 782500  1298s  tdErr 0.0028  plies 111  capped 1%
+game 784500  1302s  tdErr 0.0028  plies 111  capped 1%
+game 786500  1304s  tdErr 0.0030  plies 103  capped 0%
+game 788500  1307s  tdErr 0.0029  plies 107  capped 1%
+game 790500  1310s  tdErr 0.0030  plies 105  capped 1%
+game 792500  1313s  tdErr 0.0029  plies 108  capped 1%
+game 794500  1316s  tdErr 0.0029  plies 107  capped 1%  vs greedy: 1 (0 unfinished)
+game 796500  1319s  tdErr 0.0028  plies 109  capped 1%
+game 798500  1322s  tdErr 0.0030  plies 104  capped 0%
+game 800500  1325s  tdErr 0.0029  plies 106  capped 1%
+game 802500  1327s  tdErr 0.0031  plies 100  capped 0%
+game 804500  1330s  tdErr 0.0029  plies 108  capped 1%
+game 806500  1333s  tdErr 0.0030  plies 101  capped 0%
+game 808500  1336s  tdErr 0.0029  plies 108  capped 1%
+game 810500  1339s  tdErr 0.0030  plies 106  capped 1%
+game 812500  1342s  tdErr 0.0028  plies 109  capped 1%
+game 814500  1345s  tdErr 0.0031  plies 98  capped 0%  vs greedy: 1 (0 unfinished)
+game 816500  1347s  tdErr 0.0030  plies 104  capped 1%
+game 818500  1350s  tdErr 0.0029  plies 107  capped 0%
+game 820500  1353s  tdErr 0.0028  plies 106  capped 1%
+game 822500  1356s  tdErr 0.0029  plies 106  capped 0%
+game 824500  1359s  tdErr 0.0028  plies 108  capped 1%
+game 826500  1362s  tdErr 0.0029  plies 110  capped 1%
+game 828500  1365s  tdErr 0.0029  plies 106  capped 1%
+game 830500  1368s  tdErr 0.0027  plies 113  capped 1%
+game 832500  1372s  tdErr 0.0027  plies 117  capped 1%
+game 834500  1374s  tdErr 0.0029  plies 106  capped 0%  vs greedy: 1 (0 unfinished)
+game 836500  1378s  tdErr 0.0031  plies 102  capped 0%
+game 838500  1381s  tdErr 0.0030  plies 102  capped 0%
+game 840500  1384s  tdErr 0.0029  plies 101  capped 0%
+game 842500  1387s  tdErr 0.0030  plies 105  capped 1%
+game 844500  1390s  tdErr 0.0030  plies 104  capped 0%
+game 846500  1393s  tdErr 0.0030  plies 103  capped 1%
+game 848500  1396s  tdErr 0.0028  plies 109  capped 1%
+game 850500  1399s  tdErr 0.0030  plies 102  capped 1%
+game 852500  1402s  tdErr 0.0030  plies 104  capped 1%
+game 854500  1405s  tdErr 0.0030  plies 105  capped 1%  vs greedy: 1 (0 unfinished)
+game 856500  1407s  tdErr 0.0030  plies 105  capped 1%
+game 858500  1410s  tdErr 0.0031  plies 101  capped 0%
+game 860500  1413s  tdErr 0.0030  plies 102  capped 0%
+game 862500  1415s  tdErr 0.0030  plies 101  capped 0%
+game 864500  1418s  tdErr 0.0031  plies 99  capped 1%
+game 866500  1421s  tdErr 0.0029  plies 107  capped 0%
+game 868500  1423s  tdErr 0.0031  plies 101  capped 0%
+game 870500  1426s  tdErr 0.0030  plies 106  capped 0%
+game 872500  1429s  tdErr 0.0031  plies 101  capped 0%
+game 874500  1431s  tdErr 0.0031  plies 100  capped 0%  vs greedy: 1 (0 unfinished)
+game 876500  1434s  tdErr 0.0031  plies 99  capped 0%
+game 878500  1437s  tdErr 0.0031  plies 102  capped 0%
+game 880500  1439s  tdErr 0.0031  plies 101  capped 0%
+game 882500  1442s  tdErr 0.0029  plies 106  capped 0%
+game 884500  1445s  tdErr 0.0031  plies 102  capped 0%
+game 886500  1447s  tdErr 0.0030  plies 104  capped 1%
+game 888500  1450s  tdErr 0.0030  plies 106  capped 1%
+game 890500  1453s  tdErr 0.0030  plies 104  capped 0%
+game 892500  1456s  tdErr 0.0030  plies 103  capped 0%
+game 894500  1458s  tdErr 0.0033  plies 97  capped 0%  vs greedy: 1 (0 unfinished)
+game 896500  1461s  tdErr 0.0030  plies 99  capped 0%
+game 898500  1464s  tdErr 0.0030  plies 102  capped 1%
+game 900500  1466s  tdErr 0.0030  plies 101  capped 1%
+game 902500  1469s  tdErr 0.0032  plies 99  capped 0%
+game 904500  1472s  tdErr 0.0029  plies 107  capped 1%
+game 906500  1475s  tdErr 0.0030  plies 100  capped 0%
+game 908500  1477s  tdErr 0.0029  plies 108  capped 1%
+game 910500  1480s  tdErr 0.0030  plies 103  capped 0%
+game 912500  1483s  tdErr 0.0028  plies 111  capped 0%
+game 914500  1486s  tdErr 0.0030  plies 101  capped 1%  vs greedy: 1 (0 unfinished)
+game 916500  1488s  tdErr 0.0030  plies 104  capped 0%
+game 918500  1491s  tdErr 0.0030  plies 103  capped 1%
+game 920500  1494s  tdErr 0.0029  plies 105  capped 1%
+game 922500  1497s  tdErr 0.0030  plies 102  capped 0%
+game 924500  1499s  tdErr 0.0031  plies 100  capped 0%
+game 926500  1502s  tdErr 0.0030  plies 103  capped 1%
+game 928500  1505s  tdErr 0.0032  plies 97  capped 0%
+game 930500  1507s  tdErr 0.0030  plies 101  capped 1%
+game 932500  1510s  tdErr 0.0032  plies 98  capped 0%
+game 934500  1512s  tdErr 0.0032  plies 97  capped 0%  vs greedy: 1 (0 unfinished)
+game 936500  1515s  tdErr 0.0031  plies 102  capped 0%
+game 938500  1517s  tdErr 0.0030  plies 100  capped 0%
+game 940500  1520s  tdErr 0.0028  plies 114  capped 1%
+game 942500  1523s  tdErr 0.0029  plies 103  capped 1%
+game 944500  1526s  tdErr 0.0030  plies 104  capped 1%
+game 946500  1529s  tdErr 0.0029  plies 107  capped 1%
+game 948500  1532s  tdErr 0.0029  plies 109  capped 0%
+game 950500  1535s  tdErr 0.0030  plies 105  capped 0%
+game 952500  1537s  tdErr 0.0030  plies 103  capped 0%
+game 954500  1541s  tdErr 0.0028  plies 115  capped 1%  vs greedy: 1 (1 unfinished)
+game 956500  1544s  tdErr 0.0029  plies 108  capped 1%
+game 958500  1547s  tdErr 0.0029  plies 105  capped 0%
+game 960500  1550s  tdErr 0.0029  plies 106  capped 0%
+game 962500  1552s  tdErr 0.0030  plies 103  capped 0%
+game 964500  1555s  tdErr 0.0030  plies 102  capped 0%
+game 966500  1558s  tdErr 0.0030  plies 101  capped 0%
+game 968500  1560s  tdErr 0.0030  plies 106  capped 0%
+game 970500  1563s  tdErr 0.0031  plies 100  capped 0%
+game 972500  1566s  tdErr 0.0030  plies 103  capped 0%
+game 974500  1568s  tdErr 0.0031  plies 99  capped 0%  vs greedy: 1 (0 unfinished)
+game 976500  1571s  tdErr 0.0029  plies 107  capped 0%
+game 978500  1574s  tdErr 0.0030  plies 102  capped 0%
+game 980500  1577s  tdErr 0.0031  plies 102  capped 0%
+game 982500  1579s  tdErr 0.0031  plies 100  capped 0%
+game 984500  1582s  tdErr 0.0030  plies 105  capped 0%
+game 986500  1585s  tdErr 0.0030  plies 104  capped 0%
+game 988500  1588s  tdErr 0.0028  plies 111  capped 0%
+game 990500  1591s  tdErr 0.0030  plies 108  capped 0%
+game 992500  1594s  tdErr 0.0029  plies 108  capped 1%
+game 994500  1597s  tdErr 0.0030  plies 104  capped 0%  vs greedy: 1 (0 unfinished)
+game 996500  1602s  tdErr 0.0031  plies 100  capped 0%
+game 998500  1605s  tdErr 0.0031  plies 100  capped 0%
+game 1000500  1608s  tdErr 0.0030  plies 103  capped 0%
+game 1002500  1611s  tdErr 0.0031  plies 100  capped 0%
+game 1004500  1614s  tdErr 0.0030  plies 101  capped 0%
+game 1006500  1617s  tdErr 0.0031  plies 102  capped 0%
+game 1008500  1620s  tdErr 0.0032  plies 99  capped 0%
+game 1010500  1623s  tdErr 0.0031  plies 100  capped 0%
+game 1012500  1626s  tdErr 0.0031  plies 100  capped 0%
+game 1014500  1630s  tdErr 0.0030  plies 109  capped 0%  vs greedy: 1 (0 unfinished)
+game 1016500  1633s  tdErr 0.0030  plies 101  capped 0%
+game 1018500  1635s  tdErr 0.0028  plies 108  capped 1%
+game 1020500  1639s  tdErr 0.0029  plies 108  capped 1%
+game 1022500  1642s  tdErr 0.0027  plies 116  capped 1%
+game 1024500  1645s  tdErr 0.0029  plies 108  capped 0%
+game 1026500  1648s  tdErr 0.0029  plies 107  capped 0%
+game 1028500  1651s  tdErr 0.0029  plies 108  capped 0%
+game 1030500  1654s  tdErr 0.0028  plies 112  capped 1%
+game 1032500  1658s  tdErr 0.0029  plies 108  capped 0%
+game 1034500  1663s  tdErr 0.0028  plies 110  capped 1%  vs greedy: 0.95 (0 unfinished)
+game 1036500  1666s  tdErr 0.0029  plies 107  capped 0%
+game 1038500  1670s  tdErr 0.0029  plies 107  capped 0%
+game 1040500  1674s  tdErr 0.0029  plies 104  capped 0%
+game 1042500  1677s  tdErr 0.0031  plies 102  capped 0%
+game 1044500  1681s  tdErr 0.0030  plies 105  capped 0%
+game 1046500  1685s  tdErr 0.0030  plies 105  capped 1%
+game 1048500  1688s  tdErr 0.0029  plies 105  capped 0%
+game 1050500  1691s  tdErr 0.0030  plies 105  capped 0%
+game 1052500  1694s  tdErr 0.0030  plies 99  capped 0%
+game 1054500  1698s  tdErr 0.0028  plies 114  capped 2%  vs greedy: 1 (0 unfinished)
+game 1056500  1702s  tdErr 0.0029  plies 110  capped 1%
+game 1058500  1705s  tdErr 0.0030  plies 104  capped 0%
+game 1060500  1708s  tdErr 0.0032  plies 98  capped 0%
+game 1062500  1711s  tdErr 0.0030  plies 101  capped 0%
+game 1064500  1714s  tdErr 0.0030  plies 104  capped 0%
+game 1066500  1717s  tdErr 0.0031  plies 100  capped 0%
+game 1068500  1721s  tdErr 0.0030  plies 104  capped 0%
+game 1070500  1724s  tdErr 0.0030  plies 102  capped 0%
+game 1072500  1727s  tdErr 0.0030  plies 106  capped 0%
+game 1074500  1730s  tdErr 0.0029  plies 112  capped 0%  vs greedy: 1 (0 unfinished)
+game 1076500  1733s  tdErr 0.0030  plies 104  capped 0%
+game 1078500  1736s  tdErr 0.0030  plies 107  capped 0%
+game 1080500  1739s  tdErr 0.0029  plies 109  capped 0%
+game 1082500  1743s  tdErr 0.0028  plies 112  capped 1%
+game 1084500  1746s  tdErr 0.0030  plies 103  capped 0%
+game 1086500  1748s  tdErr 0.0031  plies 99  capped 0%
+game 1088500  1751s  tdErr 0.0030  plies 107  capped 0%
+game 1090500  1755s  tdErr 0.0028  plies 109  capped 0%
+game 1092500  1758s  tdErr 0.0029  plies 108  capped 0%
+game 1094500  1761s  tdErr 0.0030  plies 105  capped 0%  vs greedy: 1 (0 unfinished)
+game 1096500  1763s  tdErr 0.0030  plies 105  capped 0%
+game 1098500  1766s  tdErr 0.0031  plies 101  capped 0%
+game 1100500  1769s  tdErr 0.0031  plies 101  capped 0%
+game 1102500  1771s  tdErr 0.0031  plies 103  capped 0%
+game 1104500  1774s  tdErr 0.0030  plies 105  capped 0%
+game 1106500  1777s  tdErr 0.0029  plies 104  capped 0%
+game 1108500  1780s  tdErr 0.0030  plies 105  capped 0%
+game 1110500  1783s  tdErr 0.0029  plies 108  capped 0%
+game 1112500  1786s  tdErr 0.0028  plies 111  capped 0%
+game 1114500  1789s  tdErr 0.0029  plies 109  capped 1%  vs greedy: 1 (1 unfinished)
+game 1116500  1792s  tdErr 0.0029  plies 109  capped 1%
+game 1118500  1795s  tdErr 0.0028  plies 110  capped 1%
+game 1120500  1798s  tdErr 0.0029  plies 108  capped 1%
+game 1121691  1800s  tdErr 0.0029  plies 105  capped 1%  vs greedy: 1 (0 unfinished)

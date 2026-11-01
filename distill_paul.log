@@ -1,0 +1,42 @@
+start: vs random 100/100
+round 1 [75s] 68403 positions. held-out before: |V-search|^2 0.00144  brier 0.1743  std(V) 0.304
+  epoch 1 train loss 0.00647
+  epoch 2 train loss 0.00624
+  epoch 3 train loss 0.00614
+  epoch 4 train loss 0.00607
+  held-out after:  |V-search|^2 0.00092  brier 0.1742  std(V) 0.306
+  new vs old: 200/400 (50.0%, 0 Elo)  [80s]
+  rejected, keeping the old net
+round 2 [160s] 68174 positions. held-out before: |V-search|^2 0.00134  brier 0.1498  std(V) 0.304
+  epoch 1 train loss 0.00669
+  epoch 2 train loss 0.00646
+  epoch 3 train loss 0.00636
+  epoch 4 train loss 0.00630
+  held-out after:  |V-search|^2 0.00082  brier 0.1502  std(V) 0.305
+  new vs old: 193/400 (48.3%, -12 Elo)  [169s]
+  rejected, keeping the old net
+round 3 [247s] 67235 positions. held-out before: |V-search|^2 0.00124  brier 0.1393  std(V) 0.306
+  epoch 1 train loss 0.00662
+  epoch 2 train loss 0.00636
+  epoch 3 train loss 0.00625
+  epoch 4 train loss 0.00617
+  held-out after:  |V-search|^2 0.00081  brier 0.1379  std(V) 0.306
+  new vs old: 205/400 (51.3%, 9 Elo)  [254s]
+  accepted
+round 4 [334s] 67054 positions. held-out before: |V-search|^2 0.00077  brier 0.1740  std(V) 0.302
+  epoch 1 train loss 0.00647
+  epoch 2 train loss 0.00627
+  epoch 3 train loss 0.00618
+  epoch 4 train loss 0.00611
+  held-out after:  |V-search|^2 0.00072  brier 0.1732  std(V) 0.303
+  new vs old: 194/400 (48.5%, -10 Elo)  [341s]
+  rejected, keeping the old net
+round 5 [430s] 66215 positions. held-out before: |V-search|^2 0.00081  brier 0.1651  std(V) 0.303
+  epoch 1 train loss 0.00661
+  epoch 2 train loss 0.00641
+  epoch 3 train loss 0.00631
+  epoch 4 train loss 0.00625
+  held-out after:  |V-search|^2 0.00077  brier 0.1651  std(V) 0.304
+  new vs old: 211/400 (52.8%, 19 Elo)  [436s]
+  accepted
+final vs generation 0: 417/800 (15 Elo)   vs random 200/200   [442s]
