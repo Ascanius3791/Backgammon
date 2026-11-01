@@ -34,6 +34,10 @@
   #log { position: relative; height: 190px; overflow-y: auto; font: 12.5px/1.5 ui-monospace, monospace; color: var(--muted); }
   .an-list { font: 12.5px/1.6 ui-monospace, monospace; color: var(--muted); }
   .an-list .best { color: var(--best); }
+  .modesw { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .modesw label { padding: 3px 10px; cursor: pointer; }
+  .modesw input { display: none; }
+  .modesw label:has(input:checked) { background: #3f7a55; color: var(--text); }
   .count { color: var(--muted); font-size: 13px; }
   .boardwrap { display: flex; gap: 8px; align-items: flex-start; }
   .bcol { flex: 1 1 auto; min-width: 0; }
@@ -63,6 +67,7 @@
         <select id="rule"></select>
         <button id="new">New game</button>
       </div>
+      <div class="row hint" id="netrow" style="margin-top:8px;display:none"><label title="The net the bot and the analysis use. Main line is the champion (best by Elo from the normal start); Wide openings was also trained from random openings and is stronger away from the usual lines">Net <select id="mixedNet"></select></label></div>
       <div class="hint" id="ruleinfo" style="margin-top:8px"></div>
     </div>
     <div class="card">
@@ -93,8 +98,14 @@
     <div class="card">
       <label><b>Analysis</b> <input type="checkbox" id="an"></label>
       <div class="row hint" style="margin-top:6px">
+        <span class="modesw" title="Search: expectimax over the dice to a fixed depth. Rollouts: the bot plays many games out from the position (at depth 1, both sides) and the win rate is counted"><label><input type="radio" name="mode" id="modeSearch" value="search" checked>Search</label><label><input type="radio" name="mode" id="modeRoll" value="roll">Rollouts</label></span>
+      </div>
+      <div class="row hint" style="margin-top:6px" id="searchopts">
         <label title="Depth 1 and 2 score every move. Depth 3 and 4 search only the best move and the move you play (in background threads)">Depth <select id="depth"><option value="1">1 (bot's view)</option><option value="2" selected>2 plies</option><option value="3">3 (best + yours)</option><option value="4">4 (best + yours, slow)</option></select></label>
         <label><input type="checkbox" id="bestHl" checked> Highlight best move</label>
+      </div>
+      <div class="row hint" style="margin-top:6px;display:none" id="rollopts">
+        <label title="Time for the rollouts of a position (on all background threads); the number of games follows from it">Budget <select id="budget"><option value="1">1 s</option><option value="2">2 s</option><option value="3" selected>3 s</option><option value="4">4 s</option><option value="5">5 s</option></select></label>
       </div>
       <div class="an-list" id="anlist" style="margin-top:6px"></div>
       <div class="hint" id="lastinfo" style="margin-top:6px"></div>
@@ -115,6 +126,7 @@
 <script src="weights_paul.js"></script>
 <script src="weights_rene.js"></script>
 <script src="weights_mixed.js"></script>
+<script src="weights_mixed_openings.js"></script>
 <script>
 const { RULES, PLAYER_NAMES, rel, sgn } = BG;
 const RULE_INFO = {
@@ -145,7 +157,7 @@ function fresh(rule) {
   an = null;
   if (reviewing) reviewing.cancel = true;
   reviewing = null;
-  pool.cancelAll(); botThink = null; botPlan = null; pause = null;
+  pool.cancelAll(); botThink = null; botPlan = null; pause = null; ro = null;
   render();
 }
 
@@ -355,6 +367,7 @@ function renderPanel(moves) {
   $('undo').disabled = !!live || hist.length === 0;
   $('count').textContent = `Score: White ${score[0]} - ${score[1]} Black  |  Borne off: White ${s.off[0]}, Black ${s.off[1]}  |  Bench: White ${s.bar[0]}, Black ${s.bar[1]}`;
   $('ruleinfo').textContent = RULE_INFO[s.rule];
+  $('netrow').style.display = s.rule === 'mixed' ? '' : 'none';
   const lg = $('log'), full = live ? live.s.log : s.log, from = Math.max(0, full.length - 60);
   const curN = live ? timeline[viewIdx].n : -1;
   lg.innerHTML = full.slice(from).map((l, k) => `<div data-i="${from + k}"${from + k + 1 === curN ? ' class="cur"' : ''}>${l}</div>`).join('');
@@ -446,11 +459,43 @@ $('rule').onchange = () => fresh($('rule').value);
 const PRI_BOT = 0, PRI_AN = 1, PRI_REVIEW = 2; // search pool priorities: the bot's move first
 const pool = SearchPool.create();
 const deepReady = () => !!window.CoreWasm && CoreWasm.ready();
+const moduleWait = () => { // text while the search module is not there
+  const e = window.CoreWasm ? CoreWasm.error() : 'core_wasm.js is missing';
+  return e ? `The search module failed to load: ${e}. Reload the page without cache (Ctrl+Shift+R).` : 'Loading the search module…';
+};
 if (window.CoreWasm) CoreWasm.onReady(() => { if (s) render(); }); // may fire at once, before the first fresh()
 const bots = {};
 for (const r of ['paul', 'rene', 'mixed']) {
   try { nets[r] = new BotLib.Net(window['BOT_WEIGHTS_' + r.toUpperCase()]); bots[r] = BotLib.netBot(nets[r]); } catch (e) {}
 }
+// Mixed has a choice of nets. The champion is the one with the best Elo from the normal start.
+const MIXED_NETS = [
+  { id: 'mainline', name: 'Main line (champion)', w: 'BOT_WEIGHTS_MIXED' },
+  { id: 'openings', name: 'Wide openings', w: 'BOT_WEIGHTS_MIXED_OPENINGS' },
+];
+const mixedNets = {};
+for (const m of MIXED_NETS) {
+  try { mixedNets[m.id] = new BotLib.Net(window[m.w]); $('mixedNet').insertAdjacentHTML('beforeend', `<option value="${m.id}">${m.name}</option>`); } catch (e) {}
+}
+function useMixedNet(id) {
+  if (!mixedNets[id]) return;
+  nets.mixed = mixedNets[id]; bots.mixed = BotLib.netBot(nets.mixed);
+  $('mixedNet').value = id;
+  try { localStorage.setItem('bagammon.mixedNet', id); } catch (e) {}
+}
+{
+  let id = 'mainline';
+  try { id = localStorage.getItem('bagammon.mixedNet') || id; } catch (e) {}
+  useMixedNet(mixedNets[id] ? id : 'mainline');
+}
+$('mixedNet').onchange = () => {
+  useMixedNet($('mixedNet').value);
+  if (s.rule !== 'mixed') return;
+  // everything searched with the old net is stale: the bot thinks again, the analysis starts over
+  pool.cancelAll(); botThink = null; botPlan = null;
+  dropAnalysis(an); an = null; ro = null; rollVal = null;
+  render();
+};
 const botOn = [() => $('botW').checked, () => $('botB').checked];
 const botDepth = () => +$('botDepth').value;
 // depth 1: the net's own choice, move by move. Deeper: the plan for the whole segment is searched once in
@@ -528,6 +573,7 @@ render = function () {
   checkSkips();
   curSeg();
   ensureAnalysis();
+  ensureRollout();
   if (pause && !pause.ack && performance.now() >= pause.until) pause = null;
   baseRender();
   if (!ticker && searching()) ticker = setTimeout(tick, 500);
@@ -564,6 +610,10 @@ $('resign').onclick = () => {
 // ---- analysis ----
 const pct = (v) => `${(v * 100).toFixed(1)}%`;
 const curDepth = () => +$('depth').value;
+const rollMode = () => $('modeRoll').checked;
+const budgetMs = () => 1000 * +$('budget').value;
+const pm = (v) => `${v >= 0 ? '+' : '−'}${(Math.abs(v) * 100).toFixed(1)}%`;
+const sig = (e) => `±${(e * 100).toFixed(1)}`;
 const segValid = (g) => g && s.phase !== 'over' && g.rolls === s.rolls && g.phase === s.phase && g.turn === s.turn;
 
 // The human's current move/walk segment; its start state is what gets analysed and later scored.
@@ -597,7 +647,7 @@ function dropAnalysis(a) {
 // best move is searched (in the pool, with cutoffs); finishSeg adds the move actually played.
 function ensureAnalysis() {
   const g = curSeg();
-  if (!$('an').checked || !g || !nets[s.rule]) { dropAnalysis(an); an = null; return; }
+  if (!$('an').checked || !g || !nets[s.rule] || rollMode()) { dropAnalysis(an); an = null; return; }
   const depth = curDepth();
   if (an && an.seg === g && an.depth === depth) return;
   dropAnalysis(an);
@@ -619,6 +669,48 @@ function ensureAnalysis() {
     a.vals = new Map(res.map((r) => [r.key, r.value]));
     render();
   }, () => a.cancel);
+}
+
+// ---- rollouts: the bot plays games out from the position now and from the start of the last move's
+// segment (the previous position where the player who moved last held the dice), with the same dice per
+// pair of games; the win rates for that player and their difference (what the move changed) ----
+let ro = null; // { k, q, a, b, res, task, t0, done }
+const segOf = (x) => x.phase === 'move' || x.phase === 'walk';
+const sameSeg = (x, y) => segOf(x) && segOf(y) && x.rolls === y.rolls && x.phase === y.phase && x.turn === y.turn;
+// { a, q }: the start of the segment of the last move up to the shown position, and its player
+function lastSegStart() {
+  const i = curIdx();
+  let k = i;
+  while (k > 0 && !segOf(timeline[k - 1].st)) k--; // timeline[k - 1] -> timeline[k] was a move
+  if (k === 0) return { a: null, q: s.turn };
+  let j = k - 1;
+  while (j > 0 && sameSeg(timeline[j - 1].st, timeline[k - 1].st)) j--;
+  return { a: timeline[j].st, q: timeline[k - 1].st.turn };
+}
+function ensureRollout() {
+  const on = $('an').checked && rollMode() && nets[s.rule] && deepReady() && s.phase !== 'over';
+  if (!on) { if (ro && ro.task) ro.task.cancel(); ro = null; return; }
+  const { a, q } = lastSegStart(), ms = budgetMs();
+  const k = `${ms}|${q}|${a ? JSON.stringify(SearchPool.pack(a)) : ''}|${JSON.stringify(SearchPool.pack(s))}`;
+  if (ro && ro.k === k) return;
+  if (ro && ro.task) ro.task.cancel();
+  const r = ro = { k, q, a, b: clone(Object.assign({}, s, { log: [] })), res: null, done: false, t0: performance.now() };
+  r.task = pool.rollout(s.rule, nets[s.rule], a, r.b, q, ms, PRI_AN, (res) => { if (ro === r) { r.res = res; renderAnalysis(); } });
+  r.task.promise.then((res) => { if (ro === r) { r.res = res; r.done = true; renderAnalysis(); } });
+}
+function rolloutHtml() {
+  if (!ro) return deepReady() ? '' : moduleWait();
+  const r = ro.res, name = PLAYER_NAMES[ro.q];
+  if (!r || !r.n) return 'Rolling out…';
+  const seg = ro.a && sameSeg(ro.a, s) ? 'so far' : 'after it';
+  let h = `<div class="hint">${ro.done ? '' : 'Rolling out… '}${r.n} game${ro.a ? ' pairs' : 's'}, ${(r.ms / 1000).toFixed(1)} s, bot at depth 1 · ±1σ` +
+    `${pool.inline ? ' · no background threads (workers failed), running on the page' : ` · ${pool.size} threads`}</div>`;
+  if (ro.a) {
+    h += `<div>${name} before the move: ${pct(r.a)} ${sig(r.sa)}</div>`;
+    h += `<div>${name} ${seg}: ${pct(r.b)} ${sig(r.sb)}</div>`;
+    h += `<div class="best">Move: ${pm(r.d)} ${sig(r.sd)}</div>`;
+  } else h += `<div>${name}: ${pct(r.b)} ${sig(r.sb)}</div>`;
+  return h;
 }
 
 // all ways to finish the current segment from the present position, best first
@@ -665,7 +757,7 @@ function destValue(seq) {
 const planText = (path) => path.map((m) => `${m.from}${m.back ? '←' : '→'}${m.to}`).join(' ');
 
 const lossText = (rec, v, best) => `${PLAYER_NAMES[rec.player]}'s last move: ` +
-  (rec.loss < 1e-9 ? `best move (${pct(v)})` : `lost ${pct(rec.loss)} (${pct(v)} vs best ${pct(best)})`);
+  (rec.lossErr !== undefined ? `${pm(-rec.loss)} ${sig(rec.lossErr)} (rollouts)` : rec.loss < 1e-9 ? `best move (${pct(v)})` : `lost ${pct(rec.loss)} (${pct(v)} vs best ${pct(best)})`);
 
 // loss of a move at depth 3+: the best move's value minus the played end's (searched now, in the pool)
 function deepLoss(rec, bestTask, depth, pri) {
@@ -678,6 +770,7 @@ function deepLoss(rec, bestTask, depth, pri) {
     const best = b.key === rec.endKey ? v : b.value;
     rec.loss = Math.max(0, best - v);
     rec.depth = depth;
+    delete rec.lossErr;
     return { v, best };
   });
 }
@@ -707,8 +800,11 @@ function renderAnalysis() {
   const on = $('an').checked;
   renderEval(on);
   renderReplay();
+  $('searchopts').style.display = rollMode() ? 'none' : '';
+  $('rollopts').style.display = rollMode() ? '' : 'none';
   let h = '';
-  if (on && !an && curDepth() >= 3 && curSeg() && !deepReady()) h = 'Loading the search module…';
+  if (on && rollMode()) h = rolloutHtml();
+  else if (on && !an && curDepth() >= 3 && curSeg() && !deepReady()) h = moduleWait();
   else if (on && an && an.deep) {
     const b = an.best;
     if (!b) h = `Analyzing at depth ${an.depth}… ${an.n ? `${an.done}/${an.n} moves, ` : ''}${secs(an.t0)} s`;
@@ -741,13 +837,25 @@ function renderAnalysis() {
 $('review').onclick = () => {
   const net = nets[s.rule];
   if (!net || !records.length) return;
-  const depth = curDepth(), token = reviewing = { cancel: false };
+  const depth = curDepth(), rolls = rollMode(), token = reviewing = { cancel: false };
   let i = 0;
   const next = () => {
     if (token.cancel) return;
     if (i >= records.length) { reviewing = null; $('revinfo').textContent = ''; return renderAnalysis(); }
-    $('revinfo').textContent = `Evaluating ${i + 1}/${records.length} at depth ${depth}…`;
+    $('revinfo').textContent = `Evaluating ${i + 1}/${records.length} ${rolls ? 'by rollouts' : `at depth ${depth}`}…`;
     const r = records[i];
+    if (rolls) { // the move's loss is minus the change of its player's rollout win rate (signed: noisy)
+      if (!deepReady()) { reviewing = null; $('revinfo').textContent = 'The search module is not loaded'; return renderAnalysis(); }
+      const t = token.task = pool.rollout(s.rule, net, r.start, r.end, r.player, budgetMs(), PRI_REVIEW);
+      return t.promise.then((res) => {
+        if (token.cancel) return;
+        r.loss = -res.d; r.lossErr = res.sd; r.depth = 'rollouts';
+        i++;
+        renderAnalysis();
+        next();
+      });
+    }
+    delete r.lossErr;
     if (depth >= 3) {
       if (!deepReady()) { reviewing = null; $('revinfo').textContent = 'The search module is not loaded'; return renderAnalysis(); }
       const best = pool.best(s.rule, net, r.start, depth, PRI_REVIEW);
@@ -826,6 +934,7 @@ document.addEventListener('keydown', (e) => {
 function evalW() {
   const net = nets[s.rule];
   if (s.phase === 'over') return s.winner === 0 ? 1 : 0;
+  if (rollMode()) return ro && ro.res && ro.res.n ? (ro.q === 0 ? ro.res.b : 1 - ro.res.b) : null;
   const b = bestNow();
   if (b) return s.turn === 0 ? b.value : 1 - b.value; // best play of the side to move
   if (s.phase === 'roll') return rollValue(net);
@@ -860,8 +969,11 @@ function renderEval(on) {
   $('evalfill').style.height = `${v * 100}%`;
   $('evalW').textContent = `W ${Math.round(v * 100)}%`;
   $('evalB').textContent = `B ${Math.round((1 - v) * 100)}%`;
-  let note = `White ${pct(v)} · Black ${pct(1 - v)}${an && !(an.deep ? an.best : an.vals) ? ' (analysing…)' : ''}`;
+  const busy = rollMode() ? ro && !ro.done : an && !(an.deep ? an.best : an.vals);
+  let note = `White ${pct(v)} · Black ${pct(1 - v)}${busy ? ' (analysing…)' : ''}`;
   let last = lastInfo;
+  if (rollMode()) last = ro && ro.a && ro.res && ro.res.n ? `${PLAYER_NAMES[ro.q]}'s last move: ${pm(ro.res.d)} ${sig(ro.res.sd)} (rollouts)` : '';
+  else
   if (live) {
     const k = BotLib.key(s), r = records.find((x) => x.player === s.turn && BotLib.key(x.start) === k);
     last = r ? (r.loss === null ? `${PLAYER_NAMES[r.player]}'s move from here was not evaluated` : lossText(r, 0, 0).replace(/ \(.*\)$/, '')) : '';
@@ -869,7 +981,7 @@ function renderEval(on) {
   $('evalnote').innerHTML = note + `<br><span class="hint">${last || '&nbsp;'}</span>`; // second line always present: no layout jump
 }
 
-$('an').onchange = $('depth').onchange = $('bestHl').onchange = () => render();
+$('an').onchange = $('depth').onchange = $('bestHl').onchange = $('modeSearch').onchange = $('modeRoll').onchange = $('budget').onchange = () => render();
 
 $('botW').onchange = $('botB').onchange = () => render();
 

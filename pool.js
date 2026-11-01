@@ -24,7 +24,8 @@
       const m = e.data;
       if (m.wasm) { core = coreApi(new WebAssembly.Instance(new WebAssembly.Module(m.wasm)).exports); return; }
       if (m.net) nets[m.rule] = m.net;
-      postMessage(core.evalWindow(m.rule, nets[m.rule], m.s, m.p, m.depth, m.alpha, m.beta));
+      if (m.roll) postMessage(core.rollouts(m.rule, nets[m.rule], m.a, m.s, m.p, m.n, m.seed, m.cap));
+      else postMessage(core.evalWindow(m.rule, nets[m.rule], m.s, m.p, m.depth, m.alpha, m.beta));
     };
   }
 
@@ -33,6 +34,14 @@
     rule: s.rule, plyLimit: s.plyLimit, turnCount: s.turnCount, limitHit: s.limitHit, board: s.board.slice(), bar: s.bar.slice(),
     off: s.off.slice(), turn: s.turn, phase: s.phase, dice: s.dice.slice(), throw: s.throw, pending: s.pending, rolledDouble: s.rolledDouble, winner: s.winner,
   });
+
+  // what a worker needs for a job: a search (window) or a batch of rollouts (job.roll)
+  const jobMsg = (job) => job.roll
+    ? { rule: job.rule, roll: true, a: job.a, s: job.s, p: job.p, n: job.n, seed: job.seed, cap: job.cap }
+    : { rule: job.rule, s: job.s, p: job.p, depth: job.depth, alpha: job.alpha(), beta: job.beta };
+  const runInline = (job) => job.roll
+    ? C.rollouts(job.rule, job.net, job.a, job.s, job.p, job.n, job.seed, job.cap)
+    : C.evalWindow(job.rule, job.net, job.s, job.p, job.depth, job.alpha(), job.beta);
 
   class WorkerSlot {
     constructor(pool) { this.pool = pool; this.job = null; this.spawn(); }
@@ -45,7 +54,7 @@
     }
     start(job) {
       this.job = job;
-      const m = { rule: job.rule, s: job.s, p: job.p, depth: job.depth, alpha: job.alpha(), beta: job.beta };
+      const m = jobMsg(job);
       if (this.nets[job.rule] !== job.net) {
         const n = job.net;
         m.net = { W1: n.W1, b1: n.b1, W2: n.W2, b2: n.b2 };
@@ -64,7 +73,7 @@
       this.job = job;
       setTimeout(() => {
         if (this.job !== job) return;
-        this.pool.done(this, C.evalWindow(job.rule, job.net, job.s, job.p, job.depth, job.alpha(), job.beta));
+        this.pool.done(this, runInline(job));
       }, 0);
     }
     kill() { this.job = null; }
@@ -144,6 +153,48 @@
       const group = {};
       const promise = new Promise((resolve) => {
         this.submit({ group, pri, rule, net, s: pack(s), p, depth, alpha: () => -1, beta: 2, resolve });
+      });
+      return { promise, cancel: () => this.cancel(group) };
+    }
+
+    // Rollouts for player p for about ms milliseconds on all workers: games played out by the 1-ply bot from
+    // b and, if a is given, from a with the same dice (pairs). { promise, cancel }; the promise and
+    // onProgress(res) give res = { n (pairs), a, b (win rates), sa, sb (their 1-sigma errors), d (b - a),
+    // sd (its error, from the paired differences), ms }. Batches are sized to take ~0.2 s from the measured
+    // speed, so the budget is kept to about that.
+    rollout(rule, net, a, b, p, ms, pri, onProgress) {
+      const group = {}, now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const pa = a ? pack(a) : null, pb = pack(b), cap = rule === 'mixed' ? 800 : 5000;
+      const t0 = now(), end = t0 + ms, sum = [0, 0, 0, 0, 0];
+      let n = 0, inflight = 0, busy = 0; // busy: worker-milliseconds of the finished batches
+      const promise = new Promise((resolve) => {
+        const stats = () => {
+          const ma = sum[0] / n, mb = sum[1] / n, f = n > 1 ? n / (n - 1) : 1;
+          const se = (v) => Math.sqrt(Math.max(0, v) * f / n);
+          return { n, a: pa ? ma : null, b: mb, sa: pa ? se(sum[2] / n - ma * ma) : null, sb: se(sum[3] / n - mb * mb),
+            d: pa ? mb - ma : null, sd: pa ? se((sum[3] - 2 * sum[4] + sum[2]) / n - (mb - ma) ** 2) : null, ms: now() - t0 };
+        };
+        const launch = () => {
+          const left = end - now(), per = n ? busy / n : 0; // worker-ms per pair
+          const k = !per ? 2 : Math.min(Math.round(200 / per), Math.floor(left / per));
+          if (left <= 0 || k < 1) return false;
+          const st = now();
+          inflight++;
+          this.submit({
+            group, pri, rule, net, roll: true, a: pa, s: pb, p, n: k, cap, seed: (Math.random() * 2 ** 32) >>> 0,
+            resolve: (r) => {
+              inflight--;
+              for (let i = 0; i < 5; i++) sum[i] += r[i];
+              n += k; busy += now() - st;
+              if (onProgress) onProgress(stats());
+              while (inflight < this.size && launch());
+              if (!inflight) resolve(stats());
+            },
+          });
+          return true;
+        };
+        for (let i = 0; i < this.size; i++) launch();
+        if (!inflight) resolve(stats());
       });
       return { promise, cancel: () => this.cancel(group) };
     }

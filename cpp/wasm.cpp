@@ -24,7 +24,7 @@ using namespace bg;
 // net of the current rule (set by load and tdInit). Engine and TD have nonzero member initializers: as
 // plain statics they would be stored in the module (MBs of mostly zeros). Constructed in init() instead,
 // in zeroed memory.
-template <int H> struct Ctx { Engine<H> eng; TD<H> td; Pos<H> cur; };
+template <int H> struct Ctx { Engine<H> eng; TD<H> td; Pos<H> cur, alt; }; // alt: second position of rollouts
 #define BG_MEM(n) alignas(64) static unsigned char mem##n[sizeof(Ctx<n>)];
 BG_SIZES(BG_MEM)
 static int curH = 64;
@@ -146,6 +146,36 @@ EXPORT(bestPlan) float bestPlan(int depth, int prune) {
     io[48] = eng.bestLen;
     for (int k = 0; k < eng.bestLen; k++) io[49 + k] = eng.bestPath[k];
     return v;
+  });
+}
+
+// Rollouts: games played out by the bot (1-ply, both sides), P(player p wins) estimated from their results.
+// keepAlt copies cur to alt; rollouts(p, n, seed, both, cap) then plays n games from cur and, if both, n from
+// alt with the same dice (game i of both from seed + i: common random numbers, so the difference of the two
+// win rates has a much smaller error than each one). A game cut after cap rolls and moves counts 1/2.
+// fout[0..4] = sums of a, b, a*a, b*b, a*b over the games (a from alt, b from cur).
+EXPORT(keepAlt) void keepAlt() { with([](auto& c) { c.alt = c.cur; }); }
+template <int H> static float playOut(Engine<H>& eng, Pos<H> s, int p, uint64_t seed, int cap) {
+  Rng r;
+  r.s = seed;
+  int steps = 0;
+  while (s.phase != OVER && steps < cap) {
+    if (s.phase == ROLL) { eng.roll(s, r.die(), r.die()); steps++; }
+    else eng.playBest(s, &steps);
+  }
+  return s.phase == OVER ? (s.winner == p ? 1.f : 0.f) : 0.5f;
+}
+EXPORT(rollouts) void rollouts(int p, int n, unsigned seed, int both, int cap) {
+  with([&](auto& c) {
+    double sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+    for (int i = 0; i < n; i++) {
+      uint64_t z = ((uint64_t)seed << 32) + (uint64_t)i + 0x9E3779B97F4A7C15ull; // splitmix64
+      z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull; z = (z ^ (z >> 27)) * 0x94D049BB133111EBull; z ^= z >> 31;
+      z |= 1;
+      float b = playOut(c.eng, c.cur, p, z, cap), a = both ? playOut(c.eng, c.alt, p, z, cap) : b;
+      sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b;
+    }
+    fout[0] = (float)sa; fout[1] = (float)sb; fout[2] = (float)saa; fout[3] = (float)sbb; fout[4] = (float)sab;
   });
 }
 

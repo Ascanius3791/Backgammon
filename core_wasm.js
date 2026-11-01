@@ -58,6 +58,15 @@
       evalState(rule, net, s, p, depth) { useNet(rule, net); load(s); return ex.evalNode(p, depth, 1); },
       // the same with the window (alpha, beta), fail-soft (a result <= alpha or >= beta is only a bound)
       evalWindow(rule, net, s, p, depth, alpha, beta) { useNet(rule, net); load(s); return ex.evalNodeW(p, depth, alpha, beta); },
+      // n rollouts (games played out by the 1-ply bot) from b and, if a is given, n from a with the same dice:
+      // sums [a, b, a*a, b*b, a*b] of the results for player p (1 win, 0 loss, 1/2 cut after cap steps)
+      rollouts(rule, net, a, b, p, n, seed, cap) {
+        useNet(rule, net);
+        if (a) { load(a); ex.keepAlt(); }
+        load(b);
+        ex.rollouts(p, n, seed >>> 0, a ? 1 : 0, cap);
+        return Array.from(f32(ex.foutPtr(), 5));
+      },
       // best plan for the side to move: { path: [engine.js moves], value }
       bestPlan(rule, net, s, depth) {
         useNet(rule, net); load(s);
@@ -79,8 +88,10 @@
     };
   }
 
-  let core = null, wasmBytes = null, readyCbs = [];
+  let core = null, wasmBytes = null, readyCbs = [], loadError = null;
   function setup(instance) {
+    // a cached bgcore_wasm.js older than this file would fail later, inside the workers
+    if (!instance.exports.rollouts) { loadError = 'bgcore_wasm.js is out of date (rebuild with make in cpp/, or reload without cache)'; return; }
     core = coreApi(instance.exports);
     for (const f of readyCbs) f();
     readyCbs = null;
@@ -90,20 +101,23 @@
       wasmBytes = require('fs').readFileSync(require('path').join(__dirname, 'bgcore.wasm'));
       setup(new WebAssembly.Instance(new WebAssembly.Module(wasmBytes)));
     } catch (e) { core = null; }
-  } else if (root.BG_WASM_B64 && root.WebAssembly) {
+  } else if (!root.WebAssembly) loadError = 'this browser has no WebAssembly';
+  else if (!root.BG_WASM_B64) loadError = 'bgcore_wasm.js is missing';
+  else {
     const bin = atob(root.BG_WASM_B64), bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     wasmBytes = bytes;
-    WebAssembly.instantiate(bytes).then((r) => setup(r.instance)).catch(() => { core = null; });
+    WebAssembly.instantiate(bytes).then((r) => setup(r.instance)).catch((e) => { core = null; loadError = String(e); });
   }
 
   const call = (name) => (...a) => core[name](...a);
   const api = {
     ready: () => core !== null,
+    error: () => loadError, // why the module did not load (browser), or null
     onReady(f) { if (core) f(); else if (readyCbs) readyCbs.push(f); },
     exports: () => core && core.exports(),
     useNet: call('useNet'), load: call('load'), decode: call('decode'), encode: call('encode'),
-    evalState: call('evalState'), evalWindow: call('evalWindow'), bestPlan: call('bestPlan'), cands: call('cands'),
+    evalState: call('evalState'), evalWindow: call('evalWindow'), rollouts: call('rollouts'), bestPlan: call('bestPlan'), cands: call('cands'),
     wasmBytes: () => wasmBytes,
     coreApiSource: coreApi.toString(),
   };
