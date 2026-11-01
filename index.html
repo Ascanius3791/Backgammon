@@ -229,7 +229,7 @@ function stone(cx, cy, p, ring) {
 function render() {
   const p = s.turn;
   const moves = allMoves();
-  if (s.phase === 'over' && !s.counted && !live) { s.counted = true; if (s.winner !== null) score[s.winner]++; }
+  if (s.phase === 'over' && !s.counted && !live) { s.counted = true; score[s.winner]++; }
   const srcs = new Set(showHints ? moves.map((m) => String(sourceKey(p, m))) : []);
   const dests = new Map();
   const plans = $('an').checked ? curPlans() : null;
@@ -333,7 +333,7 @@ function statusText() {
   if (s.phase === 'roll') t = `${name} to roll`;
   else if (s.phase === 'walk') t = `${name}: walk the opponent's throw`;
   else if (s.phase === 'move') t = `${name} to move`;
-  else t = s.winner === null ? 'Draw (turn limit)' : `${PLAYER_NAMES[s.winner]} wins!`;
+  else t = `${PLAYER_NAMES[s.winner]} wins!`;
   if (botThink && !live) t += ` (thinking at depth ${botThink.depth}, ${secs(botThink.t0)} s)`;
   return t;
 }
@@ -937,7 +937,7 @@ document.addEventListener('keydown', (e) => {
 // ---- eval bar: White's winning chance on the position, and the loss of the last move ----
 function evalW() {
   const net = nets[s.rule];
-  if (s.phase === 'over') return s.winner === null ? 0.5 : s.winner === 0 ? 1 : 0;
+  if (s.phase === 'over') return s.winner === 0 ? 1 : 0;
   if (rollMode()) return ro && ro.res && ro.res.n ? (ro.q === 0 ? ro.res.b : 1 - ro.res.b) : null;
   const b = bestNow();
   if (b) return s.turn === 0 ? b.value : 1 - b.value; // best play of the side to move
