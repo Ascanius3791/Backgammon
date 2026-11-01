@@ -21,6 +21,7 @@ using namespace bg;
 static std::vector<double> nums(const std::string& t, const char* key) {
   std::vector<double> out;
   size_t i = t.find(std::string("\"") + key + "\"");
+  if (i == std::string::npos) return out;
   i = t.find(':', i) + 1;
   bool arr = t[i] == '[';
   if (arr) i++;
@@ -45,6 +46,12 @@ static Net* load(const char* f) {
   for (size_t i = 0; i < W1.size(); i++) n->W1[i] = W1[i];
   for (int j = 0; j < n->h; j++) { n->b1[j] = b1[j]; n->W2[j] = W2[j]; }
   n->b2 = b2[0];
+  auto Wd = nums(t, "Wd"), bd = nums(t, "bd"); // residual layers, if any
+  n->deep = bd.size() / n->h;
+  for (int k = 0; k < n->deep; k++) {
+    for (int i = 0; i < n->h * n->h; i++) n->Wd[k][i] = Wd[k * n->h * n->h + i];
+    for (int j = 0; j < n->h; j++) n->bd[k][j] = bd[k * n->h + j];
+  }
   return n;
 }
 

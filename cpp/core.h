@@ -93,13 +93,41 @@ template <int H> inline float outSum(float b, const float* x, const float* w, fl
   for (int k = 0; k < 16; k++) b += zs[k];
   return b;
 }
+// b + sum of x[j] * w[j] (no tanh), in 16 partial sums
+template <int H> inline float dotH(float b, const float* x, const float* w) {
+  float zs[16] = {};
+  for (int j = 0; j < H; j += 16)
+    for (int k = 0; k < 16; k++) zs[k] += x[j + k] * w[j + k];
+  for (int k = 0; k < 16; k++) b += zs[k];
+  return b;
+}
+// residual layer: out = in + u, u = tanh(W in + b), W is H rows of H numbers (input i's weights to all units).
+// in and out may be the same array.
+template <int H> inline void resLayer(const float* W, const float* b, const float* in, float* out, float* u) {
+  float z[H];
+  for (int j = 0; j < H; j++) z[j] = b[j];
+  for (int i = 0; i < H; i++) { float v = in[i]; const float* w = W + i * H; for (int j = 0; j < H; j++) z[j] += v * w[j]; }
+  for (int j = 0; j < H; j++) { u[j] = tanhV(z[j]); out[j] = in[j] + u[j]; }
+}
 
 // ---------------------------------------------------------------- net and position
 // W1 is nin rows of h numbers (input i's weights to all hidden units), as in bot.js
+// deep > 0: that many residual layers h += tanh(Wd h + bd) between the hidden layer and the output. With
+// Wd = bd = 0 they are the identity, so a net deepened that way plays exactly like the one-layer net.
+constexpr int DEEP_MAX = 2;
 struct Net {
-  int nin = 0, h = 0;
+  int nin = 0, h = 0, deep = 0;
   float W1[NIN_MAX * HMAX], b1[HMAX], W2[HMAX], b2;
+  float Wd[DEEP_MAX][HMAX * HMAX], bd[DEEP_MAX][HMAX];
 };
+// output sum b + W2 . h_last for the hidden sums x (before tanh)
+template <int H> inline float netOut(const Net& n, float b, const float* x) {
+  if (!n.deep) return outSum<H>(b, x, n.W2);
+  float th[H], u[H];
+  for (int j = 0; j < H; j++) th[j] = tanhV(x[j]);
+  for (int k = 0; k < n.deep; k++) resLayer<H>(n.Wd[k], n.bd[k], th, th, u);
+  return dotH<H>(b, th, n.W2);
+}
 
 // Everything that depends on the hidden size H (positions keep the hidden sums incrementally).
 template <int H> struct Pos {
@@ -338,7 +366,7 @@ template <int H> struct Engine {
     float x[H];
     for (int j = 0; j < H; j++)
       x[j] = acc[j] + e0 * B[j] + e1 * B[H + j] + e2 * B[2 * H + j] + e3 * B[3 * H + j] + e4 * B[4 * H + j] + e5 * B[5 * H + j];
-    return sigmoid(outSum<H>(net->b2 + (mixed ? (F.pip[Q] - F.pip[P]) / 60.f : 0.f), x, net->W2));
+    return sigmoid(netOut<H>(*net, net->b2 + (mixed ? (F.pip[Q] - F.pip[P]) / 60.f : 0.f), x));
   }
 
   // bot.js valueFor: P(player p wins) for a position where the roller is s.turn
@@ -699,16 +727,18 @@ template <int H> struct Engine {
 
 // ---------------------------------------------------------------- TD(lambda) trainer state
 // Scaled eligibility trace (E_true = c * E), so the per-step decay is O(1). The update only visits the
-// W1 rows whose input has been active in this game (all other rows have a zero trace), plus b1, W2, b2.
+// W1 rows whose input has been active in this game (all other rows have a zero trace), plus b1, W2, b2 and the
+// residual layers (dense).
 template <int H> struct TD {
   using Pos = bg::Pos<H>;
   using Engine = bg::Engine<H>;
   Net* net = nullptr;
   double lambda = 0.7, c = 1, y = 0.5;
-  double E[NIN_MAX * H + 2 * H + 1];
+  double E[NIN_MAX * H + 2 * H + 1 + DEEP_MAX * (H * H + H)];
   uint8_t touched[NIN_MAX];
   int rows[NIN_MAX], nrows = 0;
-  float h[H];
+  float h[H];                             // tanh of the hidden layer
+  float hl[DEEP_MAX + 1][H], ul[DEEP_MAX][H]; // deep nets: hl[0] = h, hl[k + 1] = hl[k] + ul[k] (residual layer k)
   int idx[64], nf = 0;
   float val[64], bias = 0;
 
@@ -719,9 +749,10 @@ template <int H> struct TD {
     nrows = 0; c = 1;
   }
   int eB1() const { return net->nin * H; }
+  int eD(int k) const { return eB1() + 2 * H + 1 + k * (H * H + H); } // residual layer k: W, then b
   void clear() {
     for (int r = 0; r < nrows; r++) { touched[rows[r]] = 0; for (int j = 0; j < H; j++) E[rows[r] * H + j] = 0; }
-    for (int i = eB1(); i < eB1() + 2 * H + 1; i++) E[i] = 0;
+    for (int i = eB1(); i < eD(net->deep); i++) E[i] = 0;
     nrows = 0; c = 1;
   }
   // sparse inputs of s seen by the side to roll (bot.js features)
@@ -743,7 +774,10 @@ template <int H> struct TD {
     const float* W1 = net->W1;
     for (int j = 0; j < H; j++) h[j] = net->b1[j];
     for (int t = 0; t < nf; t++) { const float* w = W1 + idx[t] * H; float v = val[t]; for (int j = 0; j < H; j++) h[j] += v * w[j]; }
-    return y = sigmoid(outSum<H>(net->b2 + bias, h, net->W2, h));
+    if (!net->deep) return y = sigmoid(outSum<H>(net->b2 + bias, h, net->W2, h));
+    for (int j = 0; j < H; j++) hl[0][j] = h[j] = tanhV(h[j]);
+    for (int k = 0; k < net->deep; k++) resLayer<H>(net->Wd[k], net->bd[k], hl[k], hl[k + 1], ul[k]);
+    return y = sigmoid(dotH<H>(net->b2 + bias, hl[net->deep], net->W2));
   }
   // E = lambda * E + sign * grad(output), right after forward()
   void trace(int sign) {
@@ -751,12 +785,27 @@ template <int H> struct TD {
     if (c < 1e-150) { for (auto& e : E) e *= c; c = 1; }
     for (int t = 0; t < nf; t++) { int r = idx[t]; if (!touched[r]) { touched[r] = 1; rows[nrows++] = r; } }
     double s = sign * y * (1 - y) / c, dh[H];
-    int oB1 = eB1(), oW2 = oB1 + H, oB2 = oW2 + H;
+    int oB1 = eB1(), oW2 = oB1 + H, oB2 = oW2 + H, D = net->deep;
     E[oB2] += s;
-    for (int j = 0; j < H; j++) {
-      E[oW2 + j] += s * h[j];
-      dh[j] = s * net->W2[j] * (1 - h[j] * h[j]);
-      E[oB1 + j] += dh[j];
+    if (!D) {
+      for (int j = 0; j < H; j++) {
+        E[oW2 + j] += s * h[j];
+        dh[j] = s * net->W2[j] * (1 - h[j] * h[j]);
+        E[oB1 + j] += dh[j];
+      }
+    } else { // back through the residual layers; dh = gradient by the current layer's input
+      for (int j = 0; j < H; j++) { E[oW2 + j] += s * hl[D][j]; dh[j] = s * net->W2[j]; }
+      for (int k = D - 1; k >= 0; k--) {
+        double dz[H], *Ew = E + eD(k), *Eb = Ew + H * H;
+        for (int j = 0; j < H; j++) { dz[j] = dh[j] * (1 - ul[k][j] * ul[k][j]); Eb[j] += dz[j]; }
+        for (int i = 0; i < H; i++) {
+          double v = hl[k][i], g = 0, *e = Ew + i * H;
+          const float* w = net->Wd[k] + i * H;
+          for (int j = 0; j < H; j++) { e[j] += v * dz[j]; g += w[j] * dz[j]; }
+          dh[i] += g;
+        }
+      }
+      for (int j = 0; j < H; j++) { dh[j] *= 1 - h[j] * h[j]; E[oB1 + j] += dh[j]; }
     }
     for (int t = 0; t < nf; t++) { double* e = E + idx[t] * H; double v = val[t]; for (int j = 0; j < H; j++) e[j] += v * dh[j]; }
   }
@@ -769,6 +818,12 @@ template <int H> struct TD {
     for (int j = 0; j < H; j++) net->b1[j] += (float)(k * e[j]);
     for (int j = 0; j < H; j++) net->W2[j] += (float)(k * e[H + j]);
     net->b2 += (float)(k * e[2 * H]);
+    for (int l = 0; l < net->deep; l++) {
+      const double* d = E + eD(l);
+      float *W = net->Wd[l], *b = net->bd[l];
+      for (int i = 0; i < H * H; i++) W[i] += (float)(k * d[i]);
+      for (int j = 0; j < H; j++) b[j] += (float)(k * d[H * H + j]);
+    }
   }
 };
 

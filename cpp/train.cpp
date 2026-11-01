@@ -8,6 +8,9 @@
 // (games is then only an upper bound); the last partial row is logged and evaluated.
 // HIDDEN (64, 128 or 256): hidden units of a new net. A smaller saved net is widened to it without
 // changing its output: the new units get small random input weights and output weight 0.
+// DEEP (0..2): residual layers h += tanh(Wd h + bd) after the hidden layer. A saved net with fewer gets the
+// missing ones as Wd = bd = 0, the identity, so it keeps its output exactly (the layers still learn: the
+// gradient by Wd is not 0).
 // VSGREEDY (Mixed, default 1): 0 = after the warm-up, pure self-play instead of every second game
 // against the greedy baseline.
 // GAMMA (default 1): per-step discount of the TD target toward 0.5 (a game that never ends is a draw),
@@ -116,6 +119,14 @@ static std::string toJSON(const Net& n) {
   for (int i = 0; i < n.h; i++) s += (i ? "," : "") + num5(n.b1[i]);
   s += "],\"W2\":[";
   for (int i = 0; i < n.h; i++) s += (i ? "," : "") + num5(n.W2[i]);
+  if (n.deep) {
+    s += "],\"Wd\":[";
+    for (int k = 0; k < n.deep; k++)
+      for (int i = 0; i < n.h * n.h; i++) s += (k || i ? "," : "") + num5(n.Wd[k][i]);
+    s += "],\"bd\":[";
+    for (int k = 0; k < n.deep; k++)
+      for (int i = 0; i < n.h; i++) s += (k || i ? "," : "") + num5(n.bd[k][i]);
+  }
   char b[64];
   snprintf(b, sizeof b, "],\"b2\":%.9g}", n.b2);
   return s + b;
@@ -255,6 +266,24 @@ int main(int argc, char** argv) {
       for (int j = 0; j < net->h; j++) net->W1[i * net->h + j] = j < h ? (float)W1[i * h + j] : (float)u(rnd);
     for (int j = 0; j < net->h; j++) { net->b1[j] = j < h ? (float)b1[j] : 0; net->W2[j] = j < h ? (float)W2[j] : 0; }
     net->b2 = (float)b2[0];
+    auto Wd = jsonNumbers(wt, "Wd"), bd = jsonNumbers(wt, "bd");
+    net->deep = (int)bd.size() / h;
+    if ((int)bd.size() != net->deep * h || (int)Wd.size() != net->deep * h * h || net->deep > DEEP_MAX) { fprintf(stderr, "%s: unexpected deep layer sizes\n", FILE_W.c_str()); return 1; }
+    if (net->deep && net->h > h) { fprintf(stderr, "widening a deep net is not supported\n"); return 1; }
+    for (int k = 0; k < net->deep; k++) {
+      for (int i = 0; i < h * h; i++) net->Wd[k][i] = (float)Wd[k * h * h + i];
+      for (int j = 0; j < h; j++) net->bd[k][j] = (float)bd[k * h + j];
+    }
+    const int DEEP = envInt("DEEP", net->deep);
+    if (DEEP < net->deep || DEEP > DEEP_MAX) { fprintf(stderr, "DEEP must be %d..%d for %s\n", net->deep, DEEP_MAX, FILE_W.c_str()); return 1; }
+    if (DEEP > net->deep) {
+      printf("deepened %s from %d to %d residual layers (identity)\n", FILE_W.c_str(), net->deep, DEEP);
+      for (int k = net->deep; k < DEEP; k++) {
+        for (int i = 0; i < net->h * net->h; i++) net->Wd[k][i] = 0;
+        for (int j = 0; j < net->h; j++) net->bd[k][j] = 0;
+      }
+      net->deep = DEEP;
+    }
     if (net->h > h) printf("widened %s from %d to %d hidden units\n", FILE_W.c_str(), h, net->h);
   } else { // like bot.js newNet
     net->h = HIDDEN ? HIDDEN : 64;
