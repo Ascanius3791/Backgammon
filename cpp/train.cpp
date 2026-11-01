@@ -28,6 +28,12 @@
 //   2. REPS * REPLAY game visits on games drawn at random from the buffer: the lambda-return of every position is
 //      computed with the current net (V(next) bootstrap, GAMMA as above), then the position is moved toward it by
 //      ALPHA * (return - V) (ALPHA falls linearly to ALPHAEND over TIME). The weights change only in this phase.
+// TEMP (default 0): softmax exploration in the self-play games: each end of a segment (the net's side, throw or
+// walk) is taken with probability ~ exp((v - best) / TEMP), v its value in win probability as in playBest.
+// TEMPEND: TEMP falls linearly to it over TIME. The plain TD target then learns the value of the softmax
+// policy, not of the greedy one that is played later. TEMPFIX=1 corrects for that (Watkins' Q(lambda)): in a
+// step where some end worse than the best was taken, the target is the mover's best value of the throw (the
+// greedy continuation) instead of the next position, and the eligibility trace is cut after the update.
 // SEARCH (default 0): n >= 2 = search distillation instead of TD(lambda): every position of the self-play
 // games (before a roll or a walk) is trained toward its depth-n expectimax value (Engine::node, full
 // window; n = 2 looks one roll further than the net), discounted toward 0.5 by GAMMA.
@@ -111,10 +117,11 @@ static std::string toJSON(const Net& n) {
   return s + b;
 }
 
-struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; };
+struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; double temp; bool tempFix; };
 struct Run { // everything main sets up before the training proper
   int rule, PRE, WORKERS, VSGREEDY, LIMITDRAW, SEARCH, TRAIN_DEPTH;
-  double EXPLORE;
+  double EXPLORE, TEMP, TEMPEND;
+  int TEMPFIX;
   long GAMES, EVAL_EVERY, LOG_EVERY;
   double ALPHA, LAMBDA, TIME, GAMMA;
   int TURN_LIMIT, MAX_PLIES;
@@ -139,18 +146,28 @@ template <int H> static Result selfPlayGame(Engine<H>& g, TD<H>& td, Pos<H>& s, 
     // one step: the roll, the mover's segment and, in Mixed, the opponent's forced walk of that throw.
     // The net only ever sees positions with nobody holding dice (no walk inputs; the walk is searched).
     if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
+    int firstP = -1; // TEMPFIX: who played the first segment of the step, and the best value it had
+    double firstBest = 0;
+    bool off = false;
     while (s.phase == MOVE || s.phase == WALK) {
+      int p = s.turn;
+      bool soft = false;
       if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr);
       else if (o.explore > 0 && g.rng.next() < o.explore) g.playRandom(s, nullptr);
+      else if (o.temp > 0) { g.playSoft(s, nullptr); soft = true; off |= g.softOff; }
       else g.playBest(s, nullptr);
+      if (firstP < 0) { firstP = soft ? p : 2; firstBest = g.softBest; }
     }
 
     double nw;
-    if (s.phase == OVER) nw = s.limitHit && o.limitDraw ? 0.5 : s.winner == 0 ? 1 : 0;
+    bool fix = o.tempFix && off && firstP < 2; // a greedy-baseline first segment has no best value to back up
+    if (fix) nw = 0.5 + o.gamma * ((firstP == 0 ? firstBest : 1 - firstBest) - 0.5);
+    else if (s.phase == OVER) nw = s.limitHit && o.limitDraw ? 0.5 : s.winner == 0 ? 1 : 0;
     else { double y2 = td.forward(g, s); nw = 0.5 + o.gamma * ((s.turn == 0 ? y2 : 1 - y2) - 0.5); }
     sqErr += (nw - cur) * (nw - cur);
     steps++;
     td.update(o.alpha * (nw - cur));
+    if (fix) td.clear(); // the rest of the game follows a non-greedy end: no credit for the positions before it
   }
   bool capped = s.phase != OVER;
   if (capped) td.update(o.alpha * (0.5 - cur)); // never finished: a draw
@@ -230,7 +247,7 @@ int main(int argc, char** argv) {
     for (int j = 0; j < net->h; j++) { net->b1[j] = 0; net->W2[j] = (float)u(rnd); }
     net->b2 = 0;
   }
-  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA };
+  const Run R { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 0), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, getenv("TEMPEND") ? atof(getenv("TEMPEND")) : getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, envInt("TEMPFIX", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA };
   switch (net->h) {
 #define BG_RUN(n) case n: return R.REPLAY ? runReplay<n>(R) : run<n>(R);
     BG_SIZES(BG_RUN)
@@ -293,7 +310,7 @@ template <int H> static int run(const Run& R) {
     }
   };
 
-  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE };
+  const Opts o { rule, PRE, TURN_LIMIT, MAX_PLIES, ALPHA, LAMBDA, startGame + GAMES, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, R.SEARCH, R.EXPLORE, R.TEMP, R.TEMPFIX != 0 };
   std::atomic<long> counter { startGame };
   std::mutex mtx;
   std::condition_variable cv;
@@ -314,6 +331,7 @@ template <int H> static int run(const Run& R) {
       g->setRule(o.rule, o.rule == MIXED ? o.turnLimit : 0, net);
       g->rng.s = seed;
       g->moveDepth = R.TRAIN_DEPTH;
+      g->needBest = o.tempFix;
       td->init(net, o.search ? 0 : o.lambda);
       Pos s;
       for (;;) {
@@ -324,7 +342,12 @@ template <int H> static int run(const Run& R) {
         // never end, and a net that sees no finished games learns that nothing matters.
         bool mix = o.rule == MIXED && o.vsGreedy && gi > o.pre && gi % 2 == 0;
         Opts og = o; // ALPHAEND: alpha falls linearly over TIME, as in replay mode
-        if (TIME > 0) og.alpha = ALPHA + (R.ALPHAEND - ALPHA) * std::min(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / TIME);
+        if (TIME > 0) {
+          double f = std::min(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / TIME);
+          og.alpha = ALPHA + (R.ALPHAEND - ALPHA) * f;
+          og.temp = R.TEMP + (R.TEMPEND - R.TEMP) * f;
+        }
+        g->temp = (float)og.temp;
         Result r = o.search ? searchGame<H>(*g, *td, s, og) : selfPlayGame<H>(*g, *td, s, gi <= o.pre ? 2 : mix ? (gi % 4 == 0 ? 0 : 1) : -1, og);
         std::lock_guard<std::mutex> lk(mtx);
         long i = ++done;
@@ -468,7 +491,7 @@ template <int H> static int runReplay(const Run& R) {
     for (auto& r : rows) { if (!all.empty()) all += ","; all += r; }
     writeFile(METRICS, "window.METRICS_" + RULE_UP + "=[" + all + "];\n");
   };
-  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE };
+  const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE, 0, false };
   std::vector<GameRec> buf;
   buf.reserve(R.KEEP);
   long bufNext = 0, games = startGame;

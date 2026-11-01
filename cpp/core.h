@@ -543,6 +543,40 @@ template <int H> struct Engine {
     for (int k = 0; k < bestLen && (s.phase == MOVE || s.phase == WALK); k++) { applyMove(s, bestPath[k]); if (moves) ++*moves; }
   }
 
+  // softmax play, for exploration in training: each end of the segment is taken with probability
+  // ~ exp((v - best) / temp), v its value as in best1. Sampled as the argmax of v + temp * Gumbel noise
+  // (exact), so each end only needs scoring up to its own cut, as in best1. softBest: the best end's value
+  // for the mover, softOff: an end worse than the best was taken; both are only filled in when needBest
+  // is set (each end is then also scored up to the best plain value so far).
+  float temp = 0, softBest = 0;
+  bool softOff = false, needBest = false;
+  static double lnT(double x) { // natural log, x > 0 (no libm here)
+    int e = 0;
+    while (x >= 2) { x *= 0.5; e++; }
+    while (x < 1) { x *= 2; e--; }
+    double z = (x - 1) / (x + 1), z2 = z * z, s = 0, zk = z;
+    for (int k = 1; k <= 19; k += 2) { s += zk / k; zk *= z2; }
+    return e * 0.6931471805599453 + 2 * s;
+  }
+  void playSoft(Pos& s, int* moves) {
+    softOff = false;
+    if (temp <= 0) { playBest(s, moves); softBest = 0; return; }
+    refresh(s);
+    int p = s.turn;
+    float top = -1e30f, val = 0, best = -1; // top: best perturbed value so far, val: its plain value
+    bestLen = 0;
+    forEnds(s, [&](Pos& C, int len) {
+      double u = rng.next();
+      float g = (float)(-lnT(-lnT(u > 0 ? u : 1e-300))), cut = top - temp * g;
+      float v = leafValue(C, p, needBest && best < cut ? best : cut);
+      if (v > best) best = v;
+      if (v > cut) { top = v + temp * g; val = v; bestLen = len; for (int k = 0; k < len; k++) bestPath[k] = path[k]; }
+      return true;
+    });
+    if (needBest) { softBest = best; softOff = best > val; }
+    for (int k = 0; k < bestLen && (s.phase == MOVE || s.phase == WALK); k++) { applyMove(s, bestPath[k]); if (moves) ++*moves; }
+  }
+
   // greedy baseline of bot.js (hit bonus 0): single moves until the turn passes or the segment ends
   void playGreedy(Pos& s, int* moves) {
     int p = s.turn, out[256];
