@@ -55,6 +55,20 @@ Architecture: 246 → 64 tanh → 1. Reconstructed from commit messages and note
 
 ## Wide openings — `weights_mixed_openings.json` (GUI alternative, Mixed)
 
-Reconstructed from notes: from the small champion, same replay recipe with `OPENING=10` (random openings of 0–10
-random segments, not trained on), 9 min. Result: −5.4 ± 4.4 Elo vs the small champion from the normal start, but
-+33.3 ± 3.5 from shared random openings (`OPENING=10` in match.cpp, 5000 pairs). Commit c559e3e.
+- **File**: commit c559e3e, 2026-11-01. Written by the session that trained it.
+- **Start**: the small champion `weights_mixed.json` at commit bc9d952. Architecture 246 → 64 tanh → 1, no `DEEP`.
+- **Training** (bgtrain at commit eef7f46, which added `OPENING`; old limit rule: a game cut at 200 turns was won by
+  the pip leader):
+  `RULE=mixed WORKERS=4 TIME=540 OPENING=10 REPLAY=10000 KEEP=100000 REPS=8 EXPLORE=0.02 ALPHAEND=0.01 ./bgtrain 100000000 0.05 0.7 100000000`
+  Every game starts with k random segments (throws and walks, either side), k uniform in 0..10. They are not
+  recorded or trained on. Wall time 540 s, 256,395 games (26 cycles).
+- **Control**, run in parallel on the other 4 cores: the same command without `OPENING`, 267,532 games.
+- **Result**, all against the small champion at bc9d952, with paired games (shared dice, colours swapped), 1-ply play,
+  limit 200 with the old pip-leader rule (0 games cut):
+  - From the normal start, 3000 pairs: **−5.4 ± 4.4 Elo** (control −2.3 ± 4.5; Wide openings vs control −7.9 ± 4.5).
+    Pair counts weren't printed by match.cpp yet.
+  - From shared random openings (`OPENING=10` in cpp/match.cpp), 5000 pairs: **+33.3 ± 3.5 Elo** (won 1494, lost
+    1016, split 2490). Control −0.2 ± 3.4 (1205 / 1208 / 2587). Wide openings vs control +30.3 ± 3.5 (1457 / 1022 / 2521).
+  - 3-2 opening at depth 1: 13/8 went from 3.6% to 34.5%, and depth 1 now nearly agrees with depth 2. Its favourite
+    3-2 is 13/10 8→10 back (52.7%) instead of 24/22 24/21.
+- Not a champion: from the normal start it is not better.
