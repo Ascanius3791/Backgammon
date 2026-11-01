@@ -44,8 +44,8 @@ for (const rule of ['mixed', 'paul', 'rene']) {
       }
       // end states and values
       const ref = new Map();
-      const ends = L.endStates(s);
-      for (const e of ends) ref.set(boardKey(e.s.board, e.s.bar, e.s.off), L.valueFor(net, e.s, s.turn));
+      const ends = L.candidates(net, s);
+      for (const e of ends) ref.set(boardKey(e.s.board, e.s.bar, e.s.off), e.value);
       const got = new Map();
       g.onLeaf = (C, v) => got.set(boardKey(C.b, C.bar, C.off), v);
       g.search();

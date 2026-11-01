@@ -8,8 +8,7 @@
 
   const H = 64; // hidden units of a new net; a saved net has its own count (b1.length)
   const NIN = 246; // 24 points * 5 thermometer units * 2 sides, then 6 scalar inputs
-  const NIN_MIXED = 253; // + 'must walk the opponent's throw' flag and the 6 face counts of those dice
-  const ninFor = (rule) => (rule === 'mixed' ? NIN_MIXED : NIN);
+  const ninFor = () => NIN; // every rule sees the same inputs; Mixed searches the opponent's walk instead
 
   // Position from the point of view of the side to roll (s.turn).
   function features(s) {
@@ -24,10 +23,6 @@
     }
     const extra = [s.bar[p] / 5, s.bar[q] / 5, s.off[p] / 15, s.off[q] / 15, pipOwn / 200, pipOpp / 200];
     for (let k = 0; k < 6; k++) { idx.push(240 + k); val.push(extra[k]); }
-    if (s.rule === 'mixed' && s.phase === 'walk') {
-      idx.push(246); val.push(1);
-      for (const d of s.dice) { idx.push(246 + d); val.push(0.5); }
-    }
     // Mixed: fixed pip-count lead as a baseline for the output. Without it, self-play on a net that
     // knows nothing collapses into aimless walking (backward moves) and games never end.
     const bias = s.rule === 'mixed' ? (pipOpp - pipOwn) / 60 : 0;
@@ -139,10 +134,21 @@
     return Array.from(done.values());
   }
 
-  // Same, scored for the mover: [{path, value}]
+  // Mixed, after the mover's own throw is played: the opponent must now walk exactly that throw. The dice
+  // are known, so there is no chance node: they take the end state that is best for them, i.e. worst for p.
+  // A skipped or dice-less opponent (no legal walk, benched) leaves a single end state.
+  function walkValue(net, s, p) {
+    if (s.phase !== 'walk' || s.turn === p) return valueFor(net, s, p);
+    let v = 1;
+    for (const e of endStates(s)) v = Math.min(v, valueFor(net, e.s, p));
+    return v;
+  }
+
+  // Same, scored for the mover: [{s, path, value}]. The net only ever scores positions with nobody holding
+  // dice; Mixed throws (phase 'move') are looked one walk ahead, Mixed walks are scored directly.
   function candidates(net, s0) {
-    const p = s0.turn;
-    return endStates(s0).map(({ s, path }) => ({ path, value: valueFor(net, s, p) }));
+    const p = s0.turn, ahead = s0.rule === 'mixed' && s0.phase === 'move';
+    return endStates(s0).map(({ s, path }) => ({ s, path, value: ahead ? walkValue(net, s, p) : valueFor(net, s, p) }));
   }
 
   function bestPlan(net, s) {

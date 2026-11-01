@@ -27,9 +27,12 @@ function selfPlayGame(g, td, greedySide, o) {
     cur = g.turn === 0 ? y : 1 - y;
     td.trace(g, g.turn === 0 ? 1 : -1);
 
+    // one step: the roll, the mover's segment and, in Mixed, the opponent's forced walk of that throw.
+    // The net only ever sees positions with nobody holding dice (no walk inputs; the walk is searched).
     if (g.phase === FA.ROLL) g.roll();
-    if (greedySide === 2 || g.turn === greedySide) g.playGreedy();
-    else if (g.phase === FA.MOVE || g.phase === FA.WALK) g.playBest();
+    while (g.phase === FA.MOVE || g.phase === FA.WALK) {
+      if (greedySide === 2 || g.turn === greedySide) g.playGreedy(); else g.playBest();
+    }
 
     let nw;
     if (g.phase === FA.OVER) nw = g.winner === 0 ? 1 : 0;

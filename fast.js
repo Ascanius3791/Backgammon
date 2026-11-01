@@ -2,7 +2,7 @@
 //   - flat typed-array position, copy-on-descend frames instead of cloned state objects
 //   - Zobrist hashes instead of string keys for de-duplicating move sequences
 //   - incremental hidden layer: the 240 stone inputs live in an accumulator per perspective that a move
-//     updates by a few rows of W1; only the 6 scalar inputs (and Mixed walk inputs) are added per leaf
+//     updates by a few rows of W1; only the 6 scalar inputs are added per leaf
 // check_fast.js verifies that end states, values and game flow match engine.js/bot.js exactly.
 'use strict';
 const BG = require('./engine.js');
@@ -92,7 +92,9 @@ class Game {
     this.mbuf = Array.from({ length: MAXD + 1 }, () => new Int32Array(256));
     this.path = new Int32Array(MAXD); this.bestPath = new Int32Array(MAXD); this.bestLen = 0; this.best = -1;
     this.seen = new Set(); this.leaves = new Set(); this.onLeaf = null;
-    this.hbuf = new Float64Array(H);
+    this.wframes = Array.from({ length: MAXD + 2 }, () => new Frame()); // Mixed: search of the opponent's walk
+    this.wmbuf = Array.from({ length: MAXD + 1 }, () => new Int32Array(256));
+    this.wseen = new Set(); this.wleaves = new Set(); this.wmin = 1;
     this.idx = new Int32Array(64); this.val = new Float64Array(64); this.nf = 0; this.bias = 0;
     this.reset();
   }
@@ -276,26 +278,16 @@ class Game {
   }
 
   // ---------------------------------------------------------------- evaluation
-  // net output for frame F seen by side P; walk = Mixed 'must walk' inputs on (dice from F.cnt)
-  evalFrame(F, P, walk) {
+  // net output for frame F seen by side P: P(P wins) with P to roll and nobody holding dice
+  evalFrame(F, P) {
     const { W1, W2, b2 } = this.net, Q = 1 - P, acc = F.acc, o = P * H;
     const e0 = F.bar[P] / 5, e1 = F.bar[Q] / 5, e2 = F.off[P] / 15, e3 = F.off[Q] / 15, e4 = F.pip[P] / 200, e5 = F.pip[Q] / 200;
     const B = 240 * H;
     let z = b2[0] + (this.mixed ? (F.pip[Q] - F.pip[P]) / 60 : 0);
-    if (!walk) {
-      for (let j = 0; j < H; j++) {
-        const x = acc[o + j] + e0 * W1[B + j] + e1 * W1[B + H + j] + e2 * W1[B + 2 * H + j] + e3 * W1[B + 3 * H + j]
-          + e4 * W1[B + 4 * H + j] + e5 * W1[B + 5 * H + j];
-        z += tanh(x) * W2[j];
-      }
-    } else {
-      const hb = this.hbuf, c = F.cnt;
-      for (let j = 0; j < H; j++) {
-        hb[j] = acc[o + j] + e0 * W1[B + j] + e1 * W1[B + H + j] + e2 * W1[B + 2 * H + j] + e3 * W1[B + 3 * H + j]
-          + e4 * W1[B + 4 * H + j] + e5 * W1[B + 5 * H + j] + W1[246 * H + j];
-      }
-      for (let d = 1; d <= 6; d++) if (c[d]) { const v = 0.5 * c[d], r = (246 + d) * H; for (let j = 0; j < H; j++) hb[j] += v * W1[r + j]; }
-      for (let j = 0; j < H; j++) z += tanh(hb[j]) * W2[j];
+    for (let j = 0; j < H; j++) {
+      const x = acc[o + j] + e0 * W1[B + j] + e1 * W1[B + H + j] + e2 * W1[B + 2 * H + j] + e3 * W1[B + 3 * H + j]
+        + e4 * W1[B + 4 * H + j] + e5 * W1[B + 5 * H + j];
+      z += tanh(x) * W2[j];
     }
     return 1 / (1 + Math.exp(-z));
   }
@@ -304,22 +296,60 @@ class Game {
   // runs the segment-end transition of engine.js virtually, then scores the resulting position
   leafValue(F, p) {
     if (F.off[p] === STONES) return 1;
-    if (this.phase === WALK || (this.rollAgain && this.rolledDouble)) return this.evalFrame(F, p, false);
+    if (this.phase === WALK || (this.rollAgain && this.rolledDouble)) return this.evalFrame(F, p);
     if (this.plyLimit && this.turnCount + 1 >= this.plyLimit) {
       const a = F.pip[0], b = F.pip[1];
       return (a < b ? 0 : a > b ? 1 : p) === p ? 1 : 0;
     }
     const q = 1 - p;
-    if (!this.mixed) return 1 - this.evalFrame(F, q, false);
-    if (F.bar[q] > 0 && this.entryBlocked(F, q)) return this.evalFrame(F, p, false);
-    // q walks the same throw (pending is always set during a Mixed move segment)
-    const save0 = F.cnt;
-    const c = this.frames[MAXD + 1].cnt; // scratch dice
-    F.cnt = c; this.setDice(F, this.t0, this.t1);
-    const walk = this.anyMove(F, q);
-    const v = this.evalFrame(F, q, walk);
-    F.cnt = save0;
-    return 1 - v;
+    if (!this.mixed) return 1 - this.evalFrame(F, q);
+    if (F.bar[q] > 0 && this.entryBlocked(F, q)) return this.evalFrame(F, p);
+    return this.walkValue(F, p);
+  }
+
+  // Mixed: q must now walk the throw p just played (pending is always set during a Mixed move segment).
+  // The dice are known, so q simply takes the end state that is best for them, i.e. worst for p.
+  walkValue(C, p) {
+    const q = 1 - p, W = this.wframes[0];
+    W.copyFrom(C);
+    this.setDice(W, this.t0, this.t1);
+    this.wseen.clear(); this.wleaves.clear();
+    this.wmin = 1;
+    if (!this.wdfs(0, p, q)) return 1 - this.evalFrame(C, q); // no legal walk: q rolls at once
+    return this.wmin;
+  }
+  wdfs(d, p, q) {
+    const F = this.wframes[d], out = this.wmbuf[d];
+    const n = this.genAll(F, q, out);
+    if (n === 0) return false;
+    const C = this.wframes[d + 1];
+    for (let i = 0; i < n; i++) {
+      const m = out[i];
+      C.copyFrom(F);
+      C.cnt[mDie(m)]--;
+      this.make(C, q, m);
+      let leaf = C.off[q] === STONES;
+      if (!leaf) {
+        let left = 0;
+        for (let k = 1; k <= 6; k++) left += C.cnt[k];
+        if (left === 0) leaf = true;
+        else {
+          let code = 0;
+          for (let k = 1; k <= 6; k++) code = code * 5 + C.cnt[k];
+          const key = (C.h1 >>> 0) * 2097152 + (((C.h2 ^ Math.imul(code, -1640531535)) >>> 0) & 2097151);
+          if (this.wseen.has(key)) continue;
+          this.wseen.add(key);
+          if (this.wdfs(d + 1, p, q)) continue;
+          leaf = true; // no remaining die can be played
+        }
+      }
+      const key = (C.h1 >>> 0) * 2097152 + ((C.h2 >>> 0) & 2097151);
+      if (this.wleaves.has(key)) continue;
+      this.wleaves.add(key);
+      const v = C.off[q] === STONES ? 0 : 1 - this.evalFrame(C, q);
+      if (v < this.wmin) this.wmin = v;
+    }
+    return true;
   }
 
   // best end state of the current MOVE/WALK segment for the side to play: fills bestPath/bestLen/best
@@ -410,10 +440,6 @@ class Game {
     }
     const extra = [F.bar[P] / 5, F.bar[Q] / 5, F.off[P] / 15, F.off[Q] / 15, F.pip[P] / 200, F.pip[Q] / 200];
     for (let k = 0; k < 6; k++) { idx[n] = 240 + k; val[n++] = extra[k]; }
-    if (this.mixed && this.phase === WALK) {
-      idx[n] = 246; val[n++] = 1;
-      for (let d = 1; d <= 6; d++) for (let c = 0; c < F.cnt[d]; c++) { idx[n] = 246 + d; val[n++] = 0.5; }
-    }
     this.nf = n;
     this.bias = this.mixed ? (F.pip[Q] - F.pip[P]) / 60 : 0;
   }
