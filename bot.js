@@ -112,14 +112,14 @@
     rule: s.rule, board: s.board.slice(), bar: s.bar.slice(), off: s.off.slice(), turn: s.turn,
     phase: s.phase, dice: s.dice.slice(), throw: s.throw, pending: s.pending ? s.pending.slice() : null,
     rolledDouble: s.rolledDouble, winner: s.winner, log: NOLOG,
-    plyLimit: s.plyLimit, turnCount: s.turnCount, limitHit: s.limitHit, rolls: s.rolls,
+    plyLimit: s.plyLimit, limitDraw: s.limitDraw, turnCount: s.turnCount, limitHit: s.limitHit, rolls: s.rolls,
   });
 
   const key = (s) => s.board.join(',') + '|' + s.bar + '|' + s.off + '|' + s.dice.join('') + '|' + s.phase + s.turn;
 
   // P(player p wins) for a position where the roller is s.turn
   function valueFor(net, s, p) {
-    if (s.phase === 'over') return s.winner === p ? 1 : 0;
+    if (s.phase === 'over') return s.winner === null ? 0.5 : s.winner === p ? 1 : 0; // null: drawn at the turn limit
     net.forward(features(s));
     if (net.heads === 2) { // own winning chance minus the other side's, scaled to 0..1
       const me = s.turn === p ? net.y[0] : net.y[1], other = s.turn === p ? net.y[1] : net.y[0];

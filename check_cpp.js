@@ -26,7 +26,7 @@ function sameState(s, where) {
   const o = io(), dice = [];
   for (let d = 1; d <= 6; d++) for (let c = 0; c < o[32 + d]; c++) dice.push(d);
   const a = [boardKey(o.slice(3, 27), [o[27], o[28]], [o[29], o[30]]), o[31], phaseName[o[32]], dice.join(''), o[32] === 3 ? o[43] : -1, o[2]].join(' ');
-  const b = [boardKey(s.board.slice(1), s.bar, s.off), s.turn, s.phase, s.dice.slice().sort().join(''), s.phase === 'over' ? s.winner : -1, s.turnCount].join(' ');
+  const b = [boardKey(s.board.slice(1), s.bar, s.off), s.turn, s.phase, s.dice.slice().sort().join(''), s.phase === 'over' ? (s.winner === null ? -1 : s.winner) : -1, s.turnCount].join(' ');
   if (a !== b) fail(`${where}: core ${a}\n   engine ${b}`);
 }
 

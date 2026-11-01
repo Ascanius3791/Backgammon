@@ -16,7 +16,7 @@ function sameState(g, s, where) {
   const F = g.F, dice = [];
   for (let d = 1; d <= 6; d++) for (let c = 0; c < F.cnt[d]; c++) dice.push(d);
   const a = [boardKey(F.b, F.bar, F.off), g.turn, phaseName[g.phase], dice.join(''), g.phase === FA.OVER ? g.winner : -1, g.turnCount].join(' ');
-  const b = [boardKey(s.board, s.bar, s.off), s.turn, s.phase, s.dice.slice().sort().join(''), s.phase === 'over' ? s.winner : -1, s.turnCount].join(' ');
+  const b = [boardKey(s.board, s.bar, s.off), s.turn, s.phase, s.dice.slice().sort().join(''), s.phase === 'over' ? (s.winner === null ? -1 : s.winner) : -1, s.turnCount].join(' ');
   if (a !== b) fail(`${where}: fast ${a}\n   engine ${b}`);
 }
 

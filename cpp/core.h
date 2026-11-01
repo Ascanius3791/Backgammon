@@ -174,6 +174,7 @@ struct Cand { int path[MAXD]; int len; float q; };
 template <int H> struct Engine {
   using Pos = bg::Pos<H>;
   int rule = MIXED, dm = 2, plyLimit = 0;
+  bool limitDraw = true; // a game cut at plyLimit is a draw (OVER, winner -1, worth 1/2); false: the pip leader wins
   bool mixed = true, rollAgain = false;
   const Net* net = nullptr;
   Rng rng;
@@ -339,7 +340,7 @@ template <int H> struct Engine {
     int q = 1 - s.turn;
     if (plyLimit && ++s.turnCount >= plyLimit) {
       int a = s.pip[0], b = s.pip[1];
-      s.winner = (int8_t)(a < b ? 0 : a > b ? 1 : s.turn); // equal: the side that just moved
+      s.winner = (int8_t)(limitDraw ? -1 : a < b ? 0 : a > b ? 1 : s.turn); // pip rule, equal: the side that just moved
       s.phase = OVER; zeroCnt(s); s.limitHit = 1;
       return;
     }
@@ -371,7 +372,7 @@ template <int H> struct Engine {
 
   // bot.js valueFor: P(player p wins) for a position where the roller is s.turn
   float valueFor(const Pos& s, int p) {
-    if (s.phase == OVER) return s.winner == p ? 1.f : 0.f;
+    if (s.phase == OVER) return s.winner < 0 ? 0.5f : s.winner == p ? 1.f : 0.f;
     float y = evalPos(s, s.turn);
     return s.turn == p ? y : 1 - y;
   }
@@ -385,6 +386,7 @@ template <int H> struct Engine {
     if (C.off[p] == STONES) return 1;
     if (C.phase == WALK || (rollAgain && C.rolledDouble)) return evalPos(C, p);
     if (plyLimit && C.turnCount + 1 >= plyLimit) {
+      if (limitDraw) return 0.5f;
       int a = C.pip[0], b = C.pip[1];
       return (a < b ? 0 : a > b ? 1 : p) == p ? 1.f : 0.f;
     }
@@ -640,7 +642,7 @@ template <int H> struct Engine {
   bool ab = true; // false: always the full window inside the tree (no cutoffs), for comparisons
   float node(const Pos& s, int p, int d, float alpha, float beta) {
     if (!ab) { alpha = -1; beta = 2; }
-    if (s.phase == OVER) return s.winner == p ? 1.f : 0.f;
+    if (s.phase == OVER) return s.winner < 0 ? 0.5f : s.winner == p ? 1.f : 0.f;
     if (d <= 1 && s.phase != MOVE) return nodeLeaf(s, p); // MOVE = just rolled: still needs its best reply
     if (s.phase == ROLL) {
       float sum = 0;

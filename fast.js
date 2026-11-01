@@ -87,6 +87,7 @@ class Game {
     this.mixed = R.mixed; this.dm = R.doubleMoves; this.rollAgain = R.rollAgain; this.nonExact = R.nonExact;
     this.net = net; // from makeWeights
     this.plyLimit = (opts && opts.plyLimit) || 0;
+    this.limitDraw = !(opts && opts.limitDraw === false); // as engine.js: a game cut at plyLimit is a draw
     this.F = new Frame();
     this.frames = Array.from({ length: MAXD + 2 }, () => new Frame());
     this.mbuf = Array.from({ length: MAXD + 1 }, () => new Int32Array(256));
@@ -263,7 +264,7 @@ class Game {
     const q = 1 - this.turn, F = this.F;
     if (this.plyLimit && ++this.turnCount >= this.plyLimit) {
       const a = F.pip[0], b = F.pip[1];
-      this.winner = a < b ? 0 : a > b ? 1 : this.turn;
+      this.winner = this.limitDraw ? -1 : a < b ? 0 : a > b ? 1 : this.turn; // like engine.js: a draw by default
       this.phase = OVER; F.cnt.fill(0); this.limitHit = true;
       return;
     }
@@ -298,6 +299,7 @@ class Game {
     if (F.off[p] === STONES) return 1;
     if (this.phase === WALK || (this.rollAgain && this.rolledDouble)) return this.evalFrame(F, p);
     if (this.plyLimit && this.turnCount + 1 >= this.plyLimit) {
+      if (this.limitDraw) return 0.5;
       const a = F.pip[0], b = F.pip[1];
       return (a < b ? 0 : a > b ? 1 : p) === p ? 1 : 0;
     }

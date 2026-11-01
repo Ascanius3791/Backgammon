@@ -35,7 +35,7 @@ function selfPlayGame(g, td, greedySide, o) {
     }
 
     let nw;
-    if (g.phase === FA.OVER) nw = g.winner === 0 ? 1 : 0;
+    if (g.phase === FA.OVER) nw = g.winner < 0 ? 0.5 : g.winner === 0 ? 1 : 0; // -1: drawn at the turn limit
     else { const y2 = td.forward(g); nw = g.turn === 0 ? y2 : 1 - y2; }
     sqErr += (nw - cur) * (nw - cur); steps++;
     td.update(o.alpha * (nw - cur));

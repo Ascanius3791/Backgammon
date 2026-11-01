@@ -16,7 +16,7 @@
   const KEEP = 4; // at depth 3+, only the best KEEP replies by 1-ply value are searched further
 
   function evalStateJS(net, s, p, d) {
-    if (s.phase === 'over') return s.winner === p ? 1 : 0;
+    if (s.phase === 'over') return s.winner === null ? 0.5 : s.winner === p ? 1 : 0; // null: drawn at the turn limit
     if (d <= 1 && s.phase !== 'move') return L.walkValue(net, s, p); // 'move' = just rolled: still needs its best reply
     if (s.phase === 'roll') {
       let v = 0;

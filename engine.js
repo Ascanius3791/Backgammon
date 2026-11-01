@@ -22,10 +22,11 @@
   const sgn = (p) => (p === 0 ? 1 : -1);
   const ownAt = (s, p, r) => Math.max(0, s.board[rel(p, r)] * sgn(p));
 
-  // opts.plyLimit (turns, 0 = off): when exceeded the side further ahead in pip count wins.
+  // opts.plyLimit (turns, 0 = off): a game that reaches it is a draw (phase 'over', winner null).
+  // opts.limitDraw = false: the old rule, the side further ahead in pip count wins.
   function newGame(rule, opts) {
     const s = {
-      rule, plyLimit: (opts && opts.plyLimit) || 0, turnCount: 0, limitHit: false, board: Array(25).fill(0), bar: [0, 0], off: [0, 0], turn: 0, phase: 'roll',
+      rule, plyLimit: (opts && opts.plyLimit) || 0, limitDraw: !(opts && opts.limitDraw === false), turnCount: 0, limitHit: false, board: Array(25).fill(0), bar: [0, 0], off: [0, 0], turn: 0, phase: 'roll',
       dice: [], throw: null, pending: null, rolledDouble: false, winner: null, log: [], rolls: 0,
     };
     for (const [r, n] of [[24, 2], [13, 5], [8, 3], [6, 5]]) {
@@ -166,11 +167,11 @@
     const q = 1 - s.turn;
     if (s.plyLimit && ++s.turnCount >= s.plyLimit) {
       const a = pip(s, 0), b = pip(s, 1);
-      s.winner = a < b ? 0 : a > b ? 1 : s.turn; // equal: the side that just moved
+      s.winner = s.limitDraw === false ? (a < b ? 0 : a > b ? 1 : s.turn) : null; // pip rule, equal: the side that just moved
       s.phase = 'over';
       s.dice = [];
       s.limitHit = true;
-      s.log.push(`Turn limit: ${PLAYER_NAMES[s.winner]} wins on pip count (${a} vs ${b})`);
+      s.log.push(s.winner === null ? `Turn limit: draw (pips ${a} vs ${b})` : `Turn limit: ${PLAYER_NAMES[s.winner]} wins on pip count (${a} vs ${b})`);
       return;
     }
     s.turn = q;

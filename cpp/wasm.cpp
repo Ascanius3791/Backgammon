@@ -171,7 +171,7 @@ template <int H> static float playOut(Engine<H>& eng, Pos<H> s, int p, uint64_t 
     if (s.phase == ROLL) { eng.roll(s, r.die(), r.die()); steps++; }
     else eng.playBest(s, &steps);
   }
-  return s.phase == OVER ? (s.winner == p ? 1.f : 0.f) : 0.5f;
+  return s.phase == OVER && s.winner >= 0 ? (s.winner == p ? 1.f : 0.f) : 0.5f; // cut or drawn at the limit: 1/2
 }
 EXPORT(rollouts) void rollouts(int p, int n, unsigned seed, int both, int cap) {
   with([&](auto& c) {
