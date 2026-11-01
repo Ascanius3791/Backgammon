@@ -827,8 +827,26 @@ function evalW() {
   if (s.phase === 'over') return s.winner === 0 ? 1 : 0;
   const b = bestNow();
   if (b) return s.turn === 0 ? b.value : 1 - b.value; // best play of the side to move
-  if (s.phase === 'roll') return BotLib.valueFor(net, s, 0);
+  if (s.phase === 'roll') return rollValue(net);
   return null; // still analysing: keep the previous value
+}
+// White's winning chance in a position where nobody holds dice, searched to the depth of the analysis.
+// The raw net (depth 1) alone can be 40 points off in ordinary opening positions, while every analysed
+// segment is shown at the selected depth: showing the raw net here made the bar jump by tens of percent
+// between a roll position and the analysis before and after it. Depth 3+ runs in the pool.
+let rollVal = null; // { k, v, task }
+function rollValue(net) {
+  const d = curDepth(), k = `${s.rule}|${d}|${BotLib.key(s)}`;
+  if (rollVal && rollVal.k === k) return rollVal.v;
+  if (rollVal && rollVal.task) rollVal.task.cancel();
+  rollVal = { k, v: null, task: null };
+  if (d <= 1) rollVal.v = BotLib.valueFor(net, s, 0);
+  else if (d === 2) { if (deepReady()) rollVal.v = AnalysisLib.evalState(net, s, 0, 2); else rollVal = null; } // rendered again once the module is loaded
+  else if (deepReady()) {
+    const r = rollVal, task = r.task = pool.value(s.rule, net, s, 0, d, PRI_AN);
+    task.promise.then((v) => { if (rollVal === r && v !== null && v !== undefined) { r.v = v; render(); } });
+  }
+  return rollVal ? rollVal.v : null;
 }
 function renderEval(on) {
   const ok = on && !!nets[s.rule];
