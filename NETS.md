@@ -108,3 +108,24 @@ Architecture: 246 → 64 tanh → 1. Added to the GUI in commit 1b43942, 2026-11
   Result: −27.1 / −21.2 / −15.4 vs this net and −23.7 / −4.5 / −7.9 vs its control; the control itself fell
   −13.2 / −9.0 / +2.9 against its start. Each restart empties the replay buffer, which probably costs strength. Its
   matches had 4× as many games cut at the limit (training plies 54 → 76–83), so the continued nets started to stall.
+
+## Value of the start position (Mixed) — 2026-11-02
+
+P(White wins), White to roll from the normal start, measured with `cpp/firstply.cpp` for both champions
+(small: `weights_mixed.json` at commit bc9d952; big v2: `weights_mixed_big.json` at commit f11f256):
+`./firstply ../weights_mixed.json 3 72000 8` (run from the repo root with the binary built in cpp/).
+
+| | Small champion | Big champion v2 |
+|---|---|---|
+| Net value of the start position | 0.5027 | 0.5276 |
+| 1 ply: White's best move averaged over the 36 throws (Black's walk of the throw searched) | 0.4987 | 0.4859 |
+| Also searching Black's next throw (`node` depth 3) | 0.5029 | 0.5101 |
+| Rollouts, 72,000 games, 1-ply bot both sides, first throw stratified, limit 200 = draw (½) | 0.5052 ± 0.0019 | 0.5008 ± 0.0019 |
+| Games cut at the limit in those rollouts | 1.24% | 0.08% |
+
+So White starts at about an even 50%; the nets' static values are within ~±0.03 of that. Rollout speed on
+8 threads: ~800 games/s (small), ~250/s (big); ±0.001 needs ~250k games. Luck-based variance reduction (`VR=1`)
+was unbiased but cut the variance only ~3.5× at ~25× the cost per game, so it does not pay.
+
+The lookahead weights the throws by probability: 21 distinct throws, a double 1/36, a non-double 2/36
+(`Engine::node` in core.h, `ROLLS` in analysis.js).
