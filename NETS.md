@@ -72,3 +72,39 @@ Architecture: 246 → 64 tanh → 1. Reconstructed from commit messages and note
   - 3-2 opening at depth 1: 13/8 went from 3.6% to 34.5%, and depth 1 now nearly agrees with depth 2. Its favourite
     3-2 is 13/10 8→10 back (52.7%) instead of 24/22 24/21.
 - Not a champion: from the normal start it is not better.
+
+## Hard positions — `weights_mixed_hard.json` (GUI alternative, Mixed)
+
+Architecture: 246 → 64 tanh → 1. Added to the GUI in commit 1b43942, 2026-11-02.
+
+- **Start**: the small champion `weights_mixed.json` (bc9d952).
+- **Disagreement set B**: the champion and Wide openings (`weights_mixed_openings.json`, c559e3e) played 1-ply
+  games for 5 s on 8 threads, 4519 games, from the normal start. Every position before a roll was scored by both
+  nets (depth 1) and duplicates were merged (exact board, bar, off and side to roll): 252,676 distinct positions.
+  The 2000 with the largest |vA − vB| make up B. Their gaps are 0.63–0.85 in win probability, and the champion was
+  the higher one in 920 of them. Built with
+  `TIME=5 SEED=1 ./disagree weights_mixed.json weights_mixed_openings.json B.txt 2000` (cpp/disagree.cpp, commit 4a6bff0).
+  That disagree binary predated the draw at the turn limit in core.h, which only mattered in games that reached it.
+- **Training**: replay mode, alpha 0.05 → 0.01, 4 workers (beside the control on the other 4), 9 min, 220,000
+  games. A game started from a random B position with chance 0.1: 9.7–10.1% of games and 10.3–10.8% of positions
+  came from B starts. A game cut at the limit was a draw (`LIMITDRAW=1`, the default):
+  `RULE=mixed WORKERS=4 REPLAY=10000 EXPLORE=0.02 ALPHAEND=0.01 TIME=540 BSET=B.txt BFRAC=0.1 ./bgtrain 100000000 0.05`
+- **Control**: the same command without BSET/BFRAC, 210,000 games.
+- **Result**: 3000 pairs each, limit = draw. Three kinds of start: the normal start, shared random openings
+  (`OPENING=10`), and a held-out set B′ (`START=` in match.cpp). B′ holds 1000 top-disagreement positions from
+  champion vs Wide openings games with another seed (`SEED=2`), with every position of B removed.
+
+  | Hard positions vs | normal start | random openings | held-out B′ |
+  |---|---|---|---|
+  | champion `weights_mixed.json` (bc9d952) | −6.3 ± 4.4 (703 / 752 / 1545) | **+23.9 ± 4.4** (829 / 627 / 1544) | **+22.6 ± 4.4** (805 / 604 / 1591) |
+  | control | −10.2 ± 4.4 (669 / 753 / 1578) | +18.3 ± 4.4 (778 / 625 / 1597) | +19.5 ± 4.4 (808 / 641 / 1551) |
+  | Wide openings (c559e3e) | +22.9 ± 4.5 | −14.1 ± 4.4 | −10.7 ± 4.4 |
+
+  The control vs the champion scored −9.4 / −0.1 / +3.0, and the champion vs Wide openings +3.4 / −36.6 / −35.3.
+- Not a champion: from the normal start it is not better. It is meant for analysing games that leave the main line.
+- **Failed continuation** (not kept): 30 more min from this net, in 6 rounds of 5 min, each a new bgtrain run with
+  constant alpha 0.01 and B rebuilt before every round from the current net vs Wide openings (`SEED=101..106`).
+  Those B sets had gaps of only 0.19–0.78, mean ≈ 0.3. The control was the same without B, from the control above.
+  Result: −27.1 / −21.2 / −15.4 vs this net and −23.7 / −4.5 / −7.9 vs its control; the control itself fell
+  −13.2 / −9.0 / +2.9 against its start. Each restart empties the replay buffer, which probably costs strength. Its
+  matches had 4× as many games cut at the limit (training plies 54 → 76–83), so the continued nets started to stall.
