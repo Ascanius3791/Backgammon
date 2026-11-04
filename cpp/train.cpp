@@ -47,6 +47,18 @@
 // BSET (file from cpp/disagree.cpp, one position per line) and BFRAC (default 0.1): a game starts from a random
 // position of the set with chance BFRAC instead of the normal start (no random opening then), and is played and
 // trained on (or recorded) from there as usual. Meant for positions the nets disagree on, so the hard ones get visited.
+// Replay mode only, exploration and the accuracy head:
+// EXPFIX=1: Watkins' Q(lambda) for EXPLORE. In a step (a roll and the segments up to the next roll) where the net's
+//   side explored, the return of the position before it is the current net's value of the position the greedy
+//   choice of that first explored segment leads to (its best end by 1-ply value, after the opponent's best walk),
+//   and the lambda-chain is cut there, so the positions before it do not learn the value of the exploring player.
+//   With EXPMODE 1/2 a step whose explored segment took the greedy end anyway is not cut.
+// EXPMODE (default 0): what an exploring segment plays. 0 = random moves (as before), 1 = the end whose position
+//   has the largest predicted error sigma of the accuracy head, 2 = the end with the largest v + UCB * sigma
+//   (UCB default 5; v and sigma in win probability).
+// SIGFRAC (default 0; with EXPMODE 1/2 0.005): share of the visited positions that train the accuracy head
+//   (core.h Net::S1..): target e = net value - depth-2 value (node(s, side, 2), current net), loss e^2 exp(-s) + s,
+//   plain SGD with step SIGALPHA (default 0.002). The head never changes the value net.
 // SEARCH (default 0): n >= 2 = search distillation instead of TD(lambda): every position of the self-play
 // games (before a roll or a walk) is trained toward its depth-n expectimax value (Engine::node, full
 // window; n = 2 looks one roll further than the net), discounted toward 0.5 by GAMMA.
@@ -134,12 +146,27 @@ static std::string toJSON(const Net& n) {
     for (int k = 0; k < n.deep; k++)
       for (int i = 0; i < n.h; i++) s += (k || i ? "," : "") + num5(n.bd[k][i]);
   }
+  if (n.sig) {
+    const int K = Net::SIG_K;
+    s += "],\"S1\":[";
+    for (int i = 0; i < n.h * K; i++) s += (i ? "," : "") + num5(n.S1[i]);
+    s += "],\"Sb1\":[";
+    for (int i = 0; i < K; i++) s += (i ? "," : "") + num5(n.Sb1[i]);
+    s += "],\"S2\":[";
+    for (int i = 0; i < K; i++) s += (i ? "," : "") + num5(n.S2[i]);
+    char c[64];
+    snprintf(c, sizeof c, "],\"Sb2\":[%.6g", n.Sb2);
+    s += c;
+  }
   char b[64];
   snprintf(b, sizeof b, "],\"b2\":%.9g}", n.b2);
   return s + b;
 }
 
 struct Rec { int8_t b[25]; uint8_t bar[2], off[2], turn; };
+static double envD(const char* k, double d) { const char* v = getenv(k); return v ? atof(v) : d; }
+static const int EXPMODE = (int)envD("EXPMODE", 0), EXPFIX = (int)envD("EXPFIX", 0);
+static const double UCB = envD("UCB", 5), SIGFRAC = envD("SIGFRAC", EXPMODE ? 0.005 : 0), SIGALPHA = envD("SIGALPHA", 0.002);
 struct Opts { int rule, pre, turnLimit, maxPlies; double alpha, lambda; long last; bool vsGreedy; double gamma; bool limitDraw; int search; double explore; double temp; bool tempFix; int opening; double speedBonus; const std::vector<Rec>* bset; double bfrac; };
 // BSET: the positions of a disagreement file (b[0..24] bar0 bar1 off0 off1 turn, then anything)
 static std::vector<Rec> readBSet(const char* f) {
@@ -336,6 +363,25 @@ int main(int argc, char** argv) {
     for (int j = 0; j < net->h; j++) { net->b1[j] = 0; net->W2[j] = (float)u(rnd); }
     net->b2 = 0;
   }
+  { // accuracy head: loaded if the file has one, else new when something uses it
+    auto S1 = jsonNumbers(wt, "S1"), Sb1 = jsonNumbers(wt, "Sb1"), S2 = jsonNumbers(wt, "S2"), Sb2 = jsonNumbers(wt, "Sb2");
+    const int K = Net::SIG_K;
+    if ((int)S1.size() == net->h * K && (int)Sb1.size() == K && (int)S2.size() == K && Sb2.size() == 1) {
+      net->sig = true;
+      for (int i = 0; i < net->h * K; i++) net->S1[i] = (float)S1[i];
+      for (int k = 0; k < K; k++) { net->Sb1[k] = (float)Sb1[k]; net->S2[k] = (float)S2[k]; }
+      net->Sb2 = (float)Sb2[0];
+      printf("accuracy head loaded\n");
+    } else if (EXPMODE || SIGFRAC > 0) {
+      net->sig = true;
+      std::uniform_real_distribution<double> us(-0.2, 0.2);
+      for (int i = 0; i < net->h * K; i++) net->S1[i] = (float)us(rnd);
+      for (int k = 0; k < K; k++) { net->Sb1[k] = 0; net->S2[k] = 0; }
+      net->Sb2 = (float)std::log(0.002);
+      printf("accuracy head: new\n");
+    }
+  }
+  if (EXPMODE || EXPFIX || SIGFRAC > 0) printf("EXPMODE %d  EXPFIX %d  UCB %g  SIGFRAC %g  SIGALPHA %g\n", EXPMODE, EXPFIX, UCB, SIGFRAC, SIGALPHA);
   static std::vector<Rec> bset;
   if (getenv("BSET")) bset = readBSet(getenv("BSET"));
   const Run R0 { rule, PRE, WORKERS, envInt("VSGREEDY", 1), envInt("LIMITDRAW", 1), envInt("SEARCH", 0), envInt("TRAIN_DEPTH", 2), getenv("EXPLORE") ? atof(getenv("EXPLORE")) : 0.0, getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, getenv("TEMPEND") ? atof(getenv("TEMPEND")) : getenv("TEMP") ? atof(getenv("TEMP")) : 0.0, envInt("TEMPFIX", 0), GAMES, EVAL_EVERY, LOG_EVERY, ALPHA, LAMBDA, TIME, getenv("GAMMA") ? atof(getenv("GAMMA")) : 1.0, TURN_LIMIT, MAX_PLIES, dir, ruleName, RULE_UP, FILE_W, METRICS, net.get(), (long)envInt("REPLAY", 0), (long)envInt("KEEP", 100000), envInt("REPS", 8), getenv("ALPHAEND") ? atof(getenv("ALPHAEND")) : ALPHA, envInt("OPENING", 0), getenv("SPEEDBONUS") ? atof(getenv("SPEEDBONUS")) : 0.0, nullptr, getenv("BFRAC") ? atof(getenv("BFRAC")) : 0.1 };
@@ -502,12 +548,64 @@ template <int H> static int run(const Run& R) {
 }
 
 // ---------------------------------------------------------------- replay buffer
-struct GameRec { std::vector<Rec> pos; float z = 0.5f; bool capped = false, fromB = false; };
+// alt: Watkins' cut (EXPFIX) after position t: the position the greedy choice led to (r, with r.turn to roll), or a
+// final value (term; termW = White's value)
+struct Alt { int t; bool term; float termW; Rec r; };
+struct GameRec { std::vector<Rec> pos; std::vector<Alt> alts; float z = 0.5f; bool capped = false, fromB = false; long explored = 0; };
+
+template <int H> static Rec toRec(const Pos<H>& s, int turn) {
+  Rec r;
+  for (int i = 0; i < 25; i++) r.b[i] = s.b[i];
+  r.bar[0] = s.bar[0]; r.bar[1] = s.bar[1]; r.off[0] = s.off[0]; r.off[1] = s.off[1]; r.turn = (uint8_t)turn;
+  return r;
+}
+
+// One exploring segment of the side to move in s (EXPMODE above). With want, alt gets the greedy alternative; the
+// return value says whether the end taken differs from the greedy one (always true for random moves).
+template <int H> static bool exploreSegment(Engine<H>& g, Pos<H>& s, bool want, Alt& alt) {
+  using P = bg::Pos<H>;
+  const int p = s.turn;
+  if (!want && EXPMODE == 0) { g.playRandom(s, nullptr); return true; }
+  g.refresh(s);
+  static thread_local P bestC, out;
+  static thread_local int chosen[MAXD];
+  float bestV = -1, bestSc = -1e30f;
+  uint64_t bestH = 0, chosenH = 0;
+  int clen = 0;
+  g.forEnds(s, [&](P& C, int len) {
+    float v = g.leafValue(C, p);
+    if (v > bestV) { bestV = v; bestC = C; bestH = C.hash; }
+    if (EXPMODE) {
+      int view; float term, sc;
+      if (g.endState(C, p, out, view, &term)) { float ls = g.sigmaLog(out, view); sc = EXPMODE == 1 ? ls : v + (float)UCB * std::exp(0.5f * ls); }
+      else sc = EXPMODE == 1 ? -1e30f : v; // a final value has no error
+      if (sc > bestSc) { bestSc = sc; chosenH = C.hash; clen = len; for (int k = 0; k < len; k++) chosen[k] = g.path[k]; }
+    }
+    return true;
+  });
+  if (want) {
+    int view; float term;
+    if (g.endState(bestC, p, out, view, &term)) { alt.term = false; alt.r = toRec(out, view); }
+    else { alt.term = true; alt.termW = p == 0 ? term : 1 - term; }
+    if (getenv("ALTCHECK")) { // the alternative's value must be the best end's 1-ply value
+      static std::atomic<long> nC{0}, nBad{0};
+      float w = alt.term ? alt.termW : 0;
+      if (!alt.term) { float y = g.evalPos(out, view); w = view == 0 ? y : 1 - y; }
+      float vp = p == 0 ? w : 1 - w;
+      nC++;
+      if (std::fabs(vp - bestV) > 1e-4f && nBad++ < 10) fprintf(stderr, "ALTCHECK p %d phase %d best %.4f alt %.4f term %d view %d\n", p, (int)s.phase, bestV, vp, (int)alt.term, view);
+      if (nC % 20000 == 0) fprintf(stderr, "ALTCHECK %ld checked, %ld bad\n", nC.load(), nBad.load());
+    }
+  }
+  if (EXPMODE == 0) { g.playRandom(s, nullptr); return true; }
+  for (int k = 0; k < clen && (s.phase == MOVE || s.phase == WALK); k++) g.applyMove(s, chosen[k]);
+  return chosenH != bestH;
+}
 
 // like selfPlayGame, but the net is frozen: every position before a roll is recorded instead of trained on
 template <int H> static void recordGame(Engine<H>& g, Pos<H>& s, int greedySide, const Opts& o, GameRec& gr) {
   gr.fromB = beginGame(g, s, o);
-  gr.pos.clear();
+  gr.pos.clear(); gr.alts.clear(); gr.explored = 0;
   int plies = 0;
   int opening = o.opening && !gr.fromB ? (int)(g.rng.next() * (o.opening + 1)) : 0; // random segments still to play (not recorded)
   while (s.phase != OVER && plies++ < o.maxPlies) {
@@ -520,14 +618,18 @@ template <int H> static void recordGame(Engine<H>& g, Pos<H>& s, int greedySide,
       }
       continue;
     }
-    Rec r;
-    for (int i = 0; i < 25; i++) r.b[i] = s.b[i];
-    r.bar[0] = s.bar[0]; r.bar[1] = s.bar[1]; r.off[0] = s.off[0]; r.off[1] = s.off[1]; r.turn = s.turn;
-    gr.pos.push_back(r);
+    gr.pos.push_back(toRec(s, s.turn));
     if (s.phase == ROLL) { int a = g.rng.die(), b = g.rng.die(); g.roll(s, a, b); }
+    bool cut = false; // this step already has its Watkins cut
     while (s.phase == MOVE || s.phase == WALK) {
       if (greedySide == 2 || s.turn == greedySide) g.playGreedy(s, nullptr);
-      else if (o.explore > 0 && g.rng.next() < o.explore) g.playRandom(s, nullptr);
+      else if (o.explore > 0 && g.rng.next() < o.explore) {
+        Alt a; a.t = (int)gr.pos.size() - 1;
+        bool want = EXPFIX && !cut;
+        bool off = exploreSegment(g, s, want, a);
+        gr.explored++;
+        if (want && off) { gr.alts.push_back(a); cut = true; }
+      }
       else g.playBest(s, nullptr);
     }
   }
@@ -546,22 +648,55 @@ template <int H> static void unpack(const Rec& r, Pos<H>& s) {
 
 // One visit: lambda-returns of the whole game with the current net, then one pass of moving each position toward
 // its return. Returns the sum of squared errors before the update and the number of positions.
-template <int H> static void visitGame(Engine<H>& g, TD<H>& td, const GameRec& gr, double alpha, double lambda, double gamma, std::vector<float>& G, double& sq, long& n) {
+// EXPFIX: at a step with an Alt the return is the current value of the greedy alternative, and the chain restarts.
+// SIGFRAC: some positions also train the accuracy head (ss: count, mean loss and mean squared target).
+struct SigStats { long n = 0; double loss = 0, e2 = 0; };
+template <int H> static void visitGame(Engine<H>& g, TD<H>& td, const GameRec& gr, double alpha, double lambda, double gamma, std::vector<float>& G, double& sq, long& n, Rng& rng, SigStats& ss) {
   const int T = (int)gr.pos.size();
-  static thread_local Pos<H> s;
+  static thread_local Pos<H> s, full;
   G.assign(T, 0.f);
   float next = gr.z, gnext = gr.z; // value and return of the position after t (White's chance)
+  int ai = (int)gr.alts.size() - 1;
   for (int t = T - 1; t >= 0; t--) {
-    G[t] = (float)((1 - lambda) * next + lambda * gnext);
+    while (ai >= 0 && gr.alts[ai].t > t) ai--;
+    if (ai >= 0 && gr.alts[ai].t == t) {
+      const Alt& a = gr.alts[ai];
+      double w;
+      if (a.term) w = a.termW;
+      else { unpack(a.r, s); double y = td.forward(g, s); w = s.turn == 0 ? y : 1 - y; }
+      G[t] = (float)(0.5 + gamma * (w - 0.5));
+    } else G[t] = (float)((1 - lambda) * next + lambda * gnext);
     gnext = G[t];
     unpack(gr.pos[t], s);
     double y = td.forward(g, s);
     double vw = s.turn == 0 ? y : 1 - y;
     next = (float)(0.5 + gamma * (vw - 0.5)); // what the position before t bootstraps from
   }
+  Net& net = *td.net;
   for (int t = 0; t < T; t++) {
     unpack(gr.pos[t], s);
     double y = td.forward(g, s), tgt = s.turn == 0 ? G[t] : 1 - G[t];
+    if (net.sig && SIGFRAC > 0 && rng.next() < SIGFRAC) {
+      const Rec& r = gr.pos[t];
+      g.reset(full);
+      for (int i = 0; i < 25; i++) full.b[i] = r.b[i];
+      full.bar[0] = r.bar[0]; full.bar[1] = r.bar[1]; full.off[0] = r.off[0]; full.off[1] = r.off[1]; full.turn = r.turn;
+      g.refresh(full);
+      double e = y - g.node(full, full.turn, 2, -1.f, 2.f);
+      constexpr int K = Net::SIG_K;
+      const float* th = net.deep ? td.hl[net.deep] : td.h;
+      float a[K];
+      float sl = Engine<H>::sigmaHead(net, th, a);
+      double q = e * e * std::exp(-(double)sl), gs = 1 - std::min(q, 20.0), lr = SIGALPHA;
+      ss.n++; ss.loss += q + sl; ss.e2 += e * e;
+      for (int k = 0; k < K; k++) {
+        double gk = gs * net.S2[k] * (1 - a[k] * a[k]);
+        net.S2[k] -= (float)(lr * gs * a[k]);
+        net.Sb1[k] -= (float)(lr * gk);
+        for (int j = 0; j < H; j++) net.S1[j * K + k] -= (float)(lr * gk * th[j]);
+      }
+      net.Sb2 -= (float)(lr * gs);
+    }
     sq += (tgt - y) * (tgt - y); n++;
     td.trace(1);
     td.update(alpha * (tgt - y));
@@ -607,7 +742,7 @@ template <int H> static int runReplay(const Run& R) {
     // 1. play with the frozen net
     const double tg0 = elapsed();
     std::atomic<long> made { 0 };
-    long plies = 0, cappedN = 0, bGames = 0, bPlies = 0;
+    long plies = 0, cappedN = 0, bGames = 0, bPlies = 0, explN = 0, altN = 0;
     {
       std::vector<std::thread> th;
       for (int k = 0; k < WORKERS; k++) {
@@ -628,7 +763,7 @@ template <int H> static int runReplay(const Run& R) {
             bool mix = rule == MIXED && o.vsGreedy && gi % 2 == 0;
             recordGame<H>(*g, s, mix ? (gi % 4 == 0 ? 0 : 1) : -1, o, gr);
             std::lock_guard<std::mutex> lk(mtx);
-            plies += (long)gr.pos.size(); cappedN += gr.capped;
+            plies += (long)gr.pos.size(); cappedN += gr.capped; explN += gr.explored; altN += (long)gr.alts.size();
             if (gr.fromB) { bGames++; bPlies += (long)gr.pos.size(); }
             if ((long)buf.size() < R.KEEP) buf.push_back(gr); else buf[bufNext++ % R.KEEP] = gr;
           }
@@ -644,6 +779,7 @@ template <int H> static int runReplay(const Run& R) {
     const long total = R.REPS * nNew;
     double sq = 0;
     long cnt = 0, vis = 0;
+    SigStats sig;
     {
       std::vector<std::thread> th;
       for (int k = 0; k < WORKERS; k++) {
@@ -656,26 +792,29 @@ template <int H> static int runReplay(const Run& R) {
           Rng rng; rng.s = seed;
           std::vector<float> G;
           double lsq = 0; long ln = 0, lv = 0;
+          SigStats lss;
           while (!timeUp()) {
             if (visits++ >= total) break;
             double alpha = R.TIME > 0 ? R.ALPHA + (R.ALPHAEND - R.ALPHA) * std::min(1.0, elapsed() / R.TIME) : R.ALPHA;
             const GameRec& gr = buf[(size_t)(rng.next() * buf.size())];
-            visitGame<H>(*g, *td, gr, alpha, R.LAMBDA, R.GAMMA, G, lsq, ln); lv++;
+            visitGame<H>(*g, *td, gr, alpha, R.LAMBDA, R.GAMMA, G, lsq, ln, rng, lss); lv++;
           }
           std::lock_guard<std::mutex> lk(mtx);
-          sq += lsq; cnt += ln; vis += lv;
+          sq += lsq; cnt += ln; vis += lv; sig.n += lss.n; sig.loss += lss.loss; sig.e2 += lss.e2;
         });
       }
       for (auto& t : th) t.join();
     }
     const double tg2 = elapsed();
-    char row[256], bText[96] = "";
+    char row[256], bText[96] = "", xText[160] = "";
+    if (o.explore > 0) snprintf(xText, sizeof xText, "  explored %ld segs, cut %ld", explN, altN);
+    if (sig.n) snprintf(xText + strlen(xText), sizeof xText - strlen(xText), "  head: %ld samples, loss %.3f, rms e %.4f", sig.n, sig.loss / sig.n, std::sqrt(sig.e2 / sig.n));
     if (o.bset) snprintf(bText, sizeof bText, "  from BSET: %.1f%% of games, %.1f%% of positions", 100.0 * bGames / std::max(nNew, 1L), 100.0 * bPlies / std::max(plies, 1L));
     snprintf(row, sizeof row, "{\"game\":%ld,\"tdErr\":%.8g,\"plies\":%.8g,\"capped\":%.8g}", games, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), (double)cappedN / std::max(nNew, 1L));
     rows.push_back(row);
     save();
-    printf("cycle %d  %.0fs  games %ld (buffer %zu)  play %.0fs (%.0f games/s)  train %.0fs (%ld visits)  tdErr %.4f  plies %.0f  capped %.0f%%%s\n", cycle, tg2, games, buf.size(),
-           tg1 - tg0, nNew / std::max(tg1 - tg0, 1e-9), tg2 - tg1, vis, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), 100.0 * cappedN / std::max(nNew, 1L), bText);
+    printf("cycle %d  %.0fs  games %ld (buffer %zu)  play %.0fs (%.0f games/s)  train %.0fs (%ld visits)  tdErr %.4f  plies %.0f  capped %.0f%%%s%s\n", cycle, tg2, games, buf.size(),
+           tg1 - tg0, nNew / std::max(tg1 - tg0, 1e-9), tg2 - tg1, vis, sq / std::max(cnt, 1L), (double)plies / std::max(nNew, 1L), 100.0 * cappedN / std::max(nNew, 1L), bText, xText);
     fflush(stdout);
   }
   save();

@@ -119,6 +119,11 @@ struct Net {
   int nin = 0, h = 0, deep = 0;
   float W1[NIN_MAX * HMAX], b1[HMAX], W2[HMAX], b2;
   float Wd[DEEP_MAX][HMAX * HMAX], bd[DEEP_MAX][HMAX];
+  // optional accuracy head on the last hidden layer t: log sigma^2 = S2 . tanh(S1 t + Sb1) + Sb2, an estimate of the
+  // squared error of the value against the depth-2 search (S1 is h rows of SIG_K numbers, like W1). Never feeds the value.
+  static constexpr int SIG_K = 32;
+  bool sig = false;
+  float S1[HMAX * SIG_K], Sb1[SIG_K], S2[SIG_K], Sb2;
 };
 // output sum b + W2 . h_last for the hidden sums x (before tanh)
 template <int H> inline float netOut(const Net& n, float b, const float* x) {
@@ -189,6 +194,9 @@ template <int H> struct Engine {
   WalkSet wseen, wleaves;
   float wbest = 0, wcut = -1;
   bool wstop = false;
+  bool wkeep = false; // walkSearch also keeps the walker's best end (wbestPos; wbestTerm: the walker bore off)
+  Pos wbestPos;
+  bool wbestTerm = false;
   int moveDepth = 2; // Mixed, own throw: 2 = look at the opponent's forced walk of it, 1 = score the position
                      // as if they rolled next (cheaper; for pretraining only)
   static constexpr int MAXC = 1 << 14;
@@ -440,6 +448,7 @@ template <int H> struct Engine {
       float v = C.off[w] == STONES ? (w == p ? 1.f : 0.f) : (w == p ? evalPos(C, w) : 1 - evalPos(C, w)); // w rolls next
       if (w == p ? v > wbest : v < wbest) {
         wbest = v;
+        if (wkeep) { wbestPos = C; wbestTerm = C.off[w] == STONES; }
         if (w == p ? wbest >= wcut : wbest <= wcut) { wstop = true; return true; }
       }
     }
@@ -453,6 +462,60 @@ template <int H> struct Engine {
       if (v >= 0) return v;
     }
     return valueFor(s, p);
+  }
+
+  // The position whose net value leafValue(C, p) uses, without cuts: out with side `view` to roll next.
+  // Returns false if the value is final instead (a side bore off, or the turn limit): then *term = P(p wins).
+  bool endState(const Pos& C, int p, Pos& out, int& view, float* term) {
+    if (C.off[p] == STONES) { *term = 1; return false; }
+    if (C.phase == WALK || (rollAgain && C.rolledDouble)) { out = C; view = p; return true; }
+    if (plyLimit && C.turnCount + 1 >= plyLimit) {
+      if (limitDraw) { *term = 0.5f; return false; }
+      int a = C.pip[0], b = C.pip[1];
+      *term = (a < b ? 0 : a > b ? 1 : p) == p ? 1.f : 0.f;
+      return false;
+    }
+    int q = 1 - p;
+    if (!mixed) { out = C; view = q; return true; }
+    if (C.bar[q] > 0 && entryBlocked(C, q)) { out = C; view = p; return true; }
+    if (moveDepth >= 2) {
+      wfr[0] = C;
+      setDice(wfr[0], C.t0, C.t1);
+      wkeep = true;
+      wbestPos = C; wbestTerm = false; // kept if no walk improves on the start value (a saturated net)
+      float v = walkSearch(q, p, -1.f);
+      wkeep = false;
+      if (v >= 0) {
+        if (wbestTerm) { *term = 0; return false; }
+        out = wbestPos; view = q; return true;
+      }
+    }
+    out = C; view = q; return true;
+  }
+  // last hidden layer (after tanh, and after the residual layers) of F seen by P, as in evalPos
+  void hiddenLast(const Pos& F, int P, float* th) const {
+    const float* acc = F.acc + P * H;
+    const float* B = net->W1 + 240 * H;
+    int Q = 1 - P;
+    float e[6] = { F.bar[P] / 5.f, F.bar[Q] / 5.f, F.off[P] / 15.f, F.off[Q] / 15.f, F.pip[P] / 200.f, F.pip[Q] / 200.f };
+    for (int j = 0; j < H; j++) { float x = acc[j]; for (int k = 0; k < 6; k++) x += e[k] * B[k * H + j]; th[j] = tanhV(x); }
+    float u[H];
+    for (int k = 0; k < net->deep; k++) resLayer<H>(net->Wd[k], net->bd[k], th, th, u);
+  }
+  // the accuracy head: log sigma^2 for F seen by P (needs net->sig)
+  float sigmaLog(const Pos& F, int P) const {
+    float th[H];
+    hiddenLast(F, P, th);
+    return sigmaHead(*net, th);
+  }
+  static float sigmaHead(const Net& n, const float* th, float* a = nullptr) {
+    constexpr int K = Net::SIG_K;
+    float z[K];
+    for (int k = 0; k < K; k++) z[k] = n.Sb1[k];
+    for (int j = 0; j < H; j++) { float t = th[j]; const float* w = n.S1 + j * K; for (int k = 0; k < K; k++) z[k] += t * w[k]; }
+    float s = n.Sb2;
+    for (int k = 0; k < K; k++) { float v = tanhV(z[k]); if (a) a[k] = v; s += n.S2[k] * v; }
+    return s;
   }
 
   // ---------------------------------------------------------------- segment enumeration
