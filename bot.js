@@ -7,6 +7,7 @@
   const BG = typeof require !== 'undefined' ? require('./engine.js') : root.BG;
 
   const H = 64; // hidden units of a new net; a saved net has its own count (b1.length)
+  const SIG_K = 32; // units of the accuracy head (core.h Net::SIG_K)
   const NIN = 246; // 24 points * 5 thermometer units * 2 sides, then 6 scalar inputs
   const ninFor = () => NIN; // every rule sees the same inputs; Mixed searches the opponent's walk instead
 
@@ -50,6 +51,13 @@
       this.bd = new Float64Array(this.deep * nh);
       this.z = new Float64Array(nh);
       if (this.deep) { this.Wd.set(w.Wd); this.bd.set(w.bd); }
+      // optional accuracy head (cpp/core.h Net::S1..): log sigma^2 = S2 . tanh(S1 h + Sb1) + Sb2 on the last hidden
+      // layer, the predicted squared error of the net's value against a 2-roll search. Never feeds the value.
+      this.sig = !!(w && w.S1 && w.S1.length === nh * SIG_K);
+      if (this.sig) {
+        this.S1 = Float64Array.from(w.S1); this.Sb1 = Float64Array.from(w.Sb1); this.S2 = Float64Array.from(w.S2);
+        this.Sb2 = Array.isArray(w.Sb2) ? w.Sb2[0] : w.Sb2; this.sz = new Float64Array(SIG_K);
+      }
       if (w) {
         this.W1.set(w.W1); this.b1.set(w.b1); this.W2.set(w.W2); this.b2[0] = w.b2;
         if (w.W2b) { this.W2b.set(w.W2b); this.b2b[0] = w.b2b; }
@@ -94,12 +102,22 @@
         for (let t = 0; t < f.idx.length; t++) E.W1[f.idx[t] * H + j] += f.val[t] * dh;
       }
     }
+    // log sigma^2 of the accuracy head for the position of the last forward()
+    sigmaLog() {
+      const K = SIG_K, z = this.sz, h = this.h;
+      for (let k = 0; k < K; k++) z[k] = this.Sb1[k];
+      for (let j = 0; j < this.H; j++) { const t = h[j], o = j * K; for (let k = 0; k < K; k++) z[k] += t * this.S1[o + k]; }
+      let v = this.Sb2;
+      for (let k = 0; k < K; k++) v += this.S2[k] * Math.tanh(z[k]);
+      return v;
+    }
     addGrad(f, y, sign, E) { this.addGradHead(f, 0, sign, E); }
     toJSON() {
       const r = (a) => Array.from(a, (x) => Math.round(x * 1e5) / 1e5);
       const o = { W1: r(this.W1), b1: r(this.b1), W2: r(this.W2), b2: this.b2[0] };
       if (this.heads === 2) { o.W2b = r(this.W2b); o.b2b = this.b2b[0]; }
       if (this.deep) { o.Wd = r(this.Wd); o.bd = r(this.bd); }
+      if (this.sig) { o.S1 = r(this.S1); o.Sb1 = r(this.Sb1); o.S2 = r(this.S2); o.Sb2 = [this.Sb2]; }
       return o;
     }
   }
@@ -164,6 +182,26 @@
     return v;
   }
 
+  // Predicted error (1 sigma, in win probability) of the value walkValue(net, s, p) gives, from the accuracy head
+  // on the position the net scores (after the walker's best walk, as in core.h Engine::endState); 0 for a finished
+  // game, null if the net has no accuracy head.
+  function sigmaFor(net, s, p) {
+    if (!net.sig) return null;
+    let t = s;
+    if (s.phase === 'walk') {
+      const mine = s.turn === p;
+      let best = null, bv = 0;
+      for (const e of endStates(s)) {
+        const v = valueFor(net, e.s, p);
+        if (!best || (mine ? v > bv : v < bv)) { best = e.s; bv = v; }
+      }
+      if (best) t = best;
+    }
+    if (t.phase === 'over') return 0;
+    net.forward(features(t));
+    return Math.sqrt(Math.exp(net.sigmaLog()));
+  }
+
   // Same, scored for the mover: [{s, path, value}]. The net only ever scores positions with nobody holding
   // dice; Mixed throws (phase 'move') are looked one walk ahead, Mixed walks are scored directly.
   function candidates(net, s0) {
@@ -217,7 +255,7 @@
     return s.phase === 'over' ? s.winner : -1;
   }
 
-  const api = { H, NIN, ninFor, Net, newNet, features, endStates, key, candidates, bestPlan, netBot, randomBot, greedyBot, playGame, cloneState, valueFor, walkValue };
+  const api = { H, NIN, ninFor, Net, newNet, features, endStates, key, candidates, bestPlan, netBot, randomBot, greedyBot, playGame, cloneState, valueFor, walkValue, sigmaFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BotLib = api;
 })(typeof window !== 'undefined' ? window : globalThis);

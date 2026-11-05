@@ -109,6 +109,36 @@ Architecture: 246 → 64 tanh → 1. Added to the GUI in commit 1b43942, 2026-11
   −13.2 / −9.0 / +2.9 against its start. Each restart empties the replay buffer, which probably costs strength. Its
   matches had 4× as many games cut at the limit (training plies 54 → 76–83), so the continued nets started to stall.
 
+## Accuracy head — `weights_mixed_sigma.json` (GUI alternative, Mixed) — 2026-11-05
+
+Architecture: 246 → 64 tanh → 1, plus an accuracy head on the hidden layer (64 → 32 tanh → 1, core.h `Net::S1..`):
+log σ² = the predicted squared error of the net's value of a position before a roll against a 2-roll search
+(`node(s, side, 2)`). The head never feeds the value. The GUI shows σ per move in the analysis (as ±, for the
+position the 1-ply value scores, after the opponent's best walk; bot.js `sigmaFor`, equal to core.h to 1e-5).
+
+- **Start**: the small champion `weights_mixed.json` (bc9d952); the head started fresh (S1 ~ U(−0.2, 0.2), S2 = 0,
+  Sb2 = log 0.002).
+- **Training** (branch worktree-sigma-head, bgtrain of commit e1f1960), replay mode, 2 workers on
+  2 CPUs, 220 s, 108,243 games (11 cycles). A game cut at the limit was a draw (`LIMITDRAW=1`):
+  `RULE=mixed WORKERS=2 REPLAY=10000 EXPLORE=0.02 ALPHAEND=0.01 EXPFIX=1 EXPMODE=1 TIME=220 ./bgtrain 100000000 0.05`
+  - `EXPMODE=1`: the 2% exploring moves take the end with the largest predicted σ instead of a random one.
+  - `EXPFIX=1`: Watkins cut, so an explored move does not teach the earlier positions; they learn the value of the
+    greedy move instead.
+  - `SIGFRAC=0.005` (the default with EXPMODE): 0.5% of the visited positions train the head on their depth-2 error
+    (`SIGALPHA=0.002`); head loss −6.3 → −7.5 (a constant σ scores about −5.2).
+- **Result**: 10,000 pairs each from the normal start, limit = draw:
+
+  | Accuracy head vs | Elo | won 2-0 / lost 0-2 / split |
+  |---|---|---|
+  | small champion `weights_mixed.json` (bc9d952) | +11.7 ± 2.4 | 2521 / 2195 / 5284 |
+  | big champion `weights_mixed_big.json` (f11f256) | −32.1 ± 2.4 | 1940 / 2845 / 5215 |
+
+- **Earlier runs of the same idea** (2026-11-04, 9 min with 4 runs sharing the machine, so about 92,000 games each;
+  10,000 pairs vs the small champion): this recipe +10.9 ± 2.4; the plain recipe (control) +8.1, B vs control +9.5;
+  `EXPFIX=1` with random exploration −36.8 (unexplained); `EXPMODE=2` (value + 5σ) −6.6. The same recipe for 20 min
+  (488,000 games) was worse: −12.6 vs the small champion, −55.3 vs the big champion.
+- Not a champion: +11.7 is within the run-to-run spread of the plain recipe. It is in the GUI for its σ.
+
 ## Value of the start position (Mixed) — 2026-11-02
 
 P(White wins), White to roll from the normal start, measured with `cpp/firstply.cpp` for both champions
