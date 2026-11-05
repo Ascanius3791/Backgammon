@@ -74,6 +74,16 @@
         ex.rollouts(p, n, seed >>> 0, a ? 1 : 0, cap);
         return Array.from(f32(ex.foutPtr(), 5));
       },
+      // truncated rollouts for the rollout bot: per end of ends, the results of games i0 .. i0+n-1 for player p
+      // (game i has the same throws from every end; the net's value after trunc throws; see cpp/wasm.cpp rollRange)
+      rollRange(rule, net, ends, p, i0, n, seedHi, seedLo, trunc, cap) {
+        useNet(rule, net);
+        return ends.map((e) => {
+          load(e);
+          ex.rollRange(p, i0, n, seedHi >>> 0, seedLo >>> 0, trunc, cap);
+          return Array.from(f32(ex.foutPtr(), n));
+        });
+      },
       // best plan for the side to move: { path: [engine.js moves], value }
       bestPlan(rule, net, s, depth) {
         useNet(rule, net); load(s);
@@ -98,7 +108,7 @@
   let core = null, wasmBytes = null, readyCbs = [], loadError = null;
   function setup(instance) {
     // a cached bgcore_wasm.js older than this file would fail later, inside the workers
-    if (!instance.exports.rollouts) { loadError = 'bgcore_wasm.js is out of date (rebuild with make in cpp/, or reload without cache)'; return; }
+    if (!instance.exports.rollRange) { loadError = 'bgcore_wasm.js is out of date (rebuild with make in cpp/, or reload without cache)'; return; }
     core = coreApi(instance.exports);
     for (const f of readyCbs) f();
     readyCbs = null;
@@ -124,7 +134,7 @@
     onReady(f) { if (core) f(); else if (readyCbs) readyCbs.push(f); },
     exports: () => core && core.exports(),
     useNet: call('useNet'), load: call('load'), decode: call('decode'), encode: call('encode'),
-    evalState: call('evalState'), evalWindow: call('evalWindow'), rollouts: call('rollouts'), bestPlan: call('bestPlan'), cands: call('cands'),
+    evalState: call('evalState'), evalWindow: call('evalWindow'), rollouts: call('rollouts'), rollRange: call('rollRange'), bestPlan: call('bestPlan'), cands: call('cands'),
     wasmBytes: () => wasmBytes,
     coreApiSource: coreApi.toString(),
   };

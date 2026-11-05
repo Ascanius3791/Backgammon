@@ -175,6 +175,11 @@ using WalkSet = HashSetT<12>; // the ends of one forced walk: at most a few hund
 
 struct Cand { int path[MAXD]; int len; float q; };
 
+// splitmix64 finalizer: a well-mixed 64-bit number from any 64-bit input
+inline uint64_t mix64(uint64_t z) {
+  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull; z = (z ^ (z >> 27)) * 0x94D049BB133111EBull; return z ^ (z >> 31);
+}
+
 // One per thread: rules, scratch space for the searches, statistics. H must equal the net's h.
 template <int H> struct Engine {
   using Pos = bg::Pos<H>;
@@ -634,6 +639,27 @@ template <int H> struct Engine {
   void playBest(Pos& s, int* moves) {
     best1(s);
     for (int k = 0; k < bestLen && (s.phase == MOVE || s.phase == WALK); k++) { applyMove(s, bestPath[k]); if (moves) ++*moves; }
+  }
+
+  // One rollout of s (any phase) for player p: the 1-ply bot plays both sides. Throw n of player q comes
+  // from mix64(seed, q, n) alone, so the games after different candidate moves get the same throws even when
+  // one of them skips a throw (Mixed: benched). After trunc throws (0: none) the net's value of the position
+  // is returned instead of playing on; a finished game gives 1 / 0 (1/2 drawn at the turn limit). With
+  // trunc = 0 a game cut after cap throws counts 1/2. Mixed small champion, 8 throws: error per game of the
+  // difference of two moves ~0.2 (shared throws barely correlate games in Mixed), ~10k games/s on 8 threads.
+  float rollout(Pos s, int p, uint64_t seed, int trunc, int cap = 800) {
+    int k[2] = { 0, 0 }, steps = 0;
+    while (s.phase != OVER) {
+      if (s.phase != ROLL) { playBest(s, &steps); continue; }
+      int n = k[0] + k[1];
+      if (trunc && n >= trunc) return valueFor(s, p);
+      if (!trunc && n >= cap) return 0.5f;
+      Rng r;
+      r.s = mix64(seed ^ (0x9E3779B97F4A7C15ull * (uint64_t)(2 * k[s.turn]++ + s.turn + 1))) | 1;
+      int a = r.die();
+      roll(s, a, r.die());
+    }
+    return s.winner < 0 ? 0.5f : s.winner == p ? 1.f : 0.f;
   }
 
   // softmax play, for exploration in training: each end of the segment is taken with probability

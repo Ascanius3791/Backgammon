@@ -187,6 +187,22 @@ for (const rule of ['paul', 'rene', 'mixed']) {
       }
     }
   }
+  // rollout bot: rollRange is deterministic and in [0, 1]; rolloutBest plays one of the segment's ends
+  {
+    const net = new L.Net(JSON.parse(fs.readFileSync(__dirname + '/weights_mixed.json')));
+    for (const s0 of samples.mixed.slice(0, 3)) {
+      const s = L.cloneState(s0);
+      if (s.phase === 'roll') BG.roll(s);
+      if (s.phase !== 'move' && s.phase !== 'walk') continue;
+      const ends = L.endStates(s).slice(0, 2).map((e) => require('./pool.js').pack(e.s));
+      const r1 = C.rollRange('mixed', net, ends, s.turn, 5, 6, 1, 2, 8, 800), r2 = C.rollRange('mixed', net, ends, s.turn, 5, 6, 1, 2, 8, 800);
+      if (JSON.stringify(r1) !== JSON.stringify(r2) || r1.flat().some((x) => !(x >= 0 && x <= 1))) fail(`rollRange ${JSON.stringify(r1)} vs ${JSON.stringify(r2)}`);
+      const got = await pool.rolloutBest('mixed', net, s, 300, 0).promise;
+      const keys = L.endStates(s).map((e) => L.key(e.s));
+      searches++;
+      if (!got || !keys.includes(got.key) || !(got.value >= 0 && got.value <= 1)) fail(`rolloutBest ${got && got.key} value ${got && got.value}`);
+    }
+  }
   console.log(`${positions} positions, ${leaves} end states, ${tdSteps} TD steps, ${searches} search values compared, ${fails} failures`);
   process.exit(fails ? 1 : 0);
 })();

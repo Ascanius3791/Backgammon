@@ -187,6 +187,17 @@ EXPORT(rollouts) void rollouts(int p, int n, unsigned seed, int both, int cap) {
   });
 }
 
+// Truncated rollouts for the rollout bot (pool.js rolloutBest): games i0 .. i0+n-1 from cur for player p,
+// game i with the throws of seed (seedHi, seedLo, i) (Engine::rollout), so the same game index gives the
+// same throws from every candidate end. Results into fout[0..n-1].
+EXPORT(rollRange) void rollRange(int p, int i0, int n, unsigned seedHi, unsigned seedLo, int trunc, int cap) {
+  if (n > ENDS_MAX * END_W) n = ENDS_MAX * END_W;
+  with([&](auto& c) {
+    uint64_t base = mix64(((uint64_t)seedHi << 32) | seedLo);
+    for (int i = 0; i < n; i++) fout[i] = c.eng.rollout(c.cur, p, mix64(base + (uint64_t)(i0 + i)), trunc, cap);
+  });
+}
+
 // all ends of cur's segment with their 1-ply value for the mover, into fout; returns the count
 EXPORT(ends) int ends() {
   return with([](auto& c) {

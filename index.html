@@ -84,7 +84,7 @@
         <label><input type="checkbox" id="botW"> White</label>
         <label><input type="checkbox" id="botB"> Black</label>
         <label><input type="checkbox" id="botStep"> Wait for me</label>
-        <label title="How many rolls the bot looks ahead. 2 to 4 search in background threads; 4 takes seconds (Paul) to many minutes (Mixed) per move">Depth <select id="botDepth"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+        <label title="How many rolls the bot looks ahead. 2 to 4 search in background threads; 4 takes seconds (Paul) to many minutes (Mixed) per move. Rollouts: the moves with the best depth-2 values (up to 8) are played out many times by the depth-1 bot for 8 throws, with the same dice for every move, and then scored by the net; a move is dropped once it is behind by 2 standard errors; the bot plays the leader when the time is up. The time is per decision (in Mixed the move and the walk of a throw are two)">Depth <select id="botDepth"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="r1">Rollouts 1 s</option><option value="r3">Rollouts 3 s</option></select></label>
         <button id="botGo" style="display:none">Continue</button>
       </div>
       <div class="count" id="count" style="margin-top:8px"></div>
@@ -160,7 +160,7 @@ function fresh(rule) {
   an = null;
   if (reviewing) reviewing.cancel = true;
   reviewing = null;
-  pool.cancelAll(); botThink = null; botPlan = null; pause = null; ro = null;
+  pool.cancelAll(); botThink = null; botPlan = null; pause = null; ro = null; lastRoll = null;
   render();
 }
 
@@ -328,6 +328,13 @@ function render() {
 }
 
 const secs = (t0) => ((performance.now() - t0) / 1000).toFixed(0);
+// the rollout bot's last decision, for the status line: its value, games, and how many candidates were left
+let lastRoll = null;
+function rollSummary(r) {
+  if (!r.cands.length) return null;
+  const left = r.cands.filter((c) => c.alive).length;
+  return `rollout bot's last move: ${(100 * r.value).toFixed(1)}%, ${r.games} games, ${left === 1 ? 'decided' : `${left} of ${r.cands.length} moves still close`}`;
+}
 function statusText() {
   const name = PLAYER_NAMES[s.turn];
   let t = '';
@@ -335,7 +342,8 @@ function statusText() {
   else if (s.phase === 'walk') t = `${name}: walk the opponent's throw`;
   else if (s.phase === 'move') t = `${name} to move`;
   else t = `${PLAYER_NAMES[s.winner]} wins!`;
-  if (botThink && !live) t += ` (thinking at depth ${botThink.depth}, ${secs(botThink.t0)} s)`;
+  if (botThink && !live) t += ` (thinking at ${botDepthName(botThink.depth)}, ${secs(botThink.t0)} s${botThink.info ? `, ${botThink.info.games} games` : ''})`;
+  else if (lastRoll && !live && rollBot(botDepth())) t += ` · ${lastRoll}`;
   return t;
 }
 
@@ -503,7 +511,9 @@ $('mixedNet').onchange = () => {
   render();
 };
 const botOn = [() => $('botW').checked, () => $('botB').checked];
-const botDepth = () => +$('botDepth').value;
+const botDepth = () => $('botDepth').value; // '1'..'4', or 'r1' / 'r3': the rollout bot with 1 / 3 s per segment
+const rollBot = (d) => d[0] === 'r';
+const botDepthName = (d) => (rollBot(d) ? `rollouts ${d.slice(1)} s` : `depth ${d}`);
 // depth 1: the net's own choice, move by move. Deeper: the plan for the whole segment is searched once in
 // the pool (expectimax with cutoffs in the C++ core), then played move by move.
 let botTimer = null, botThink = null, botPlan = null; // botPlan.path[i] is played from the state with key botPlan.keys[i]
@@ -522,14 +532,18 @@ function botStep() {
   const d = botDepth(), k = BotLib.key(s);
   const i = botPlan && botPlan.depth === d && botPlan.rule === s.rule ? botPlan.keys.indexOf(k) : -1;
   if (i >= 0) BG.applyMove(s, botPlan.path[i]);
-  else if (d <= 1 || !deepReady()) BG.applyMove(s, bot.move(s));
+  else if (d === '1' || !deepReady()) BG.applyMove(s, bot.move(s));
   else if (!botThink) {
-    const st = BotLib.cloneState(s), task = botThink = pool.best(s.rule, nets[s.rule], s, d, PRI_BOT);
+    const st = BotLib.cloneState(s);
+    const task = botThink = rollBot(d)
+      ? pool.rolloutBest(s.rule, nets[s.rule], s, 1000 * +d.slice(1), PRI_BOT, (info) => { task.info = info; })
+      : pool.best(s.rule, nets[s.rule], s, +d, PRI_BOT);
     Object.assign(task, { key: k, depth: d, t0: performance.now() });
     task.promise.then((res) => {
       if (botThink !== task) return;
       botThink = null;
       if (res) botPlan = { rule: st.rule, depth: d, path: res.path, keys: planKeys(st, res.path) };
+      if (res && rollBot(d)) lastRoll = rollSummary(res);
       render();
     });
   }
