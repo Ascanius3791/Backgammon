@@ -290,8 +290,11 @@ template <int H> struct Engine {
   static int highest(const Pos& F, int p) { for (int r = 24; r >= 1; r--) if (own(F, p, r)) return r; return 0; }
   static bool entryBlocked(const Pos& F, int p) { for (int d = 1; d <= 6; d++) if (canLand(F, p, 25 - d)) return false; return true; }
 
-  // legal single-die moves of p into out[n..]; returns the new n
-  int gen(const Pos& F, int p, int d, int* out, int n) const {
+  // legal single-die moves of p into out[n..]; returns the new n.
+  // Mixed: no backward move while the opponent cannot move with any throw (frozen, judged by the plain rules,
+  // their own backward moves included). fz caches that test for F across the dice: -1 unknown, 0/1 known.
+  // plain = true: without that restriction (used by the test itself).
+  int gen(const Pos& F, int p, int d, int* out, int n, int* fz = nullptr, bool plain = false) const {
     if (F.bar[p] > 0) {
       if (canLand(F, p, 25 - d)) out[n++] = enc(BAR, 25 - d, d, 0);
       return n;
@@ -302,23 +305,34 @@ template <int H> struct Engine {
     if (mixed && home && own(F, p, d)) { out[n++] = enc(d, OFF, d, 0); return n; }
     // Mixed: backward moves while no stone is off and no stone is benched
     bool canBack = mixed && F.off[0] == 0 && F.off[1] == 0 && F.bar[1 - p] == 0;
+    int fzLocal = -1;
+    if (!fz) fz = &fzLocal;
     for (int r = 1; r <= top; r++) {
       if (!own(F, p, r)) continue;
       int t = r - d;
       if (t >= 1) { if (canLand(F, p, t)) out[n++] = enc(r, t, d, 0); }
       else if (home && (t == 0 || r == top)) out[n++] = enc(r, OFF, d, 0);
-      if (canBack && r > 6 && r + d <= 24 && canLand(F, p, r + d)) out[n++] = enc(r, r + d, d, 1);
+      if (canBack && r > 6 && r + d <= 24 && canLand(F, p, r + d)) {
+        if (!plain && *fz < 0) *fz = frozen(F, 1 - p);
+        if (plain || !*fz) out[n++] = enc(r, r + d, d, 1);
+      }
     }
     return n;
   }
+  // Mixed: q has no legal move with any die (plain rules)
+  bool frozen(const Pos& F, int q) const {
+    int tmp[64];
+    for (int d = 1; d <= 6; d++) if (gen(F, q, d, tmp, 0, nullptr, true)) return false;
+    return true;
+  }
   int genAll(const Pos& F, int p, int* out) const {
-    int n = 0;
-    for (int d = 1; d <= 6; d++) if (F.cnt[d]) n = gen(F, p, d, out, n);
+    int n = 0, fz = -1;
+    for (int d = 1; d <= 6; d++) if (F.cnt[d]) n = gen(F, p, d, out, n, &fz);
     return n;
   }
   bool anyMove(const Pos& F, int p) const {
-    int out[64];
-    for (int d = 1; d <= 6; d++) if (F.cnt[d] && gen(F, p, d, out, 0)) return true;
+    int out[64], fz = -1;
+    for (int d = 1; d <= 6; d++) if (F.cnt[d] && gen(F, p, d, out, 0, &fz)) return true;
     return false;
   }
   void setDice(Pos& F, int a, int b) const {

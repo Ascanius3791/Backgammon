@@ -4,6 +4,9 @@ Rules for this file: see [CLAUDE.md](CLAUDE.md). Newest entries first within eac
 `cpp/match.cpp` (1-ply play, paired games with shared dice and colours swapped, normal start unless stated,
 LIMIT 200), ± 1σ.
 
+Rule change on 2026-11-05 (the frozen rule): in Mixed, no stone may walk backward while the opponent cannot move
+with any throw. All results below were measured before that change, and the nets were trained without it.
+
 ## Big champion — `weights_mixed_big.json` (GUI: "Big champion", Mixed)
 
 Architecture: 246 inputs → 64 tanh hidden units → **2 residual layers** of 64 (h ← h + tanh(Wd·h + bd)) → 1 sigmoid

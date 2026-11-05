@@ -203,7 +203,9 @@ class Game {
   entryBlocked(F, p) { for (let d = 1; d <= 6; d++) if (this.canLand(F, p, 25 - d)) return false; return true; }
 
   // legal single-die moves of p into out[n..]; returns the new n
-  gen(F, p, d, out, n) {
+  // Mixed: no backward move while the opponent cannot move with any throw (plain rules, their backward moves
+  // included); plain = true: without that rule
+  gen(F, p, d, out, n, plain) {
     if (F.bar[p] > 0) {
       if (this.canLand(F, p, 25 - d)) out[n++] = enc(BAR, 25 - d, d, 0);
       return n;
@@ -211,14 +213,23 @@ class Game {
     const top = this.highest(F, p), home = top <= 6;
     if (this.mixed && home && this.own(F, p, d)) { out[n++] = enc(d, OFF, d, 0); return n; }
     const canBack = this.mixed && F.off[0] === 0 && F.off[1] === 0 && F.bar[1 - p] === 0;
+    let fz = null;
     for (let r = 1; r <= top; r++) {
       if (!this.own(F, p, r)) continue;
       const t = r - d;
       if (t >= 1) { if (this.canLand(F, p, t)) out[n++] = enc(r, t, d, 0); }
       else if (home && (t === 0 || (this.nonExact && r === top))) out[n++] = enc(r, OFF, d, 0);
-      if (canBack && r > 6 && r + d <= 24 && this.canLand(F, p, r + d)) out[n++] = enc(r, r + d, d, 1);
+      if (canBack && r > 6 && r + d <= 24 && this.canLand(F, p, r + d)) {
+        if (fz === null && !plain) fz = this.frozen(F, 1 - p);
+        if (plain || !fz) out[n++] = enc(r, r + d, d, 1);
+      }
     }
     return n;
+  }
+  frozen(F, q) {
+    const tmp = new Int32Array(64);
+    for (let d = 1; d <= 6; d++) if (this.gen(F, q, d, tmp, 0, true)) return false;
+    return true;
   }
   genAll(F, p, out) {
     let n = 0;

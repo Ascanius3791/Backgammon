@@ -56,7 +56,14 @@
 
   // Legal single-die moves for player p. from/to are relative; to === 'off' bears off.
   // A move is legal on its own; there is no obligation to maximise the number of dice used.
-  function movesFor(s, p, d) {
+  // Mixed: q has no legal move with any die, by the plain rules (their own backward moves included)
+  function frozen(s, q) {
+    for (let d = 1; d <= 6; d++) if (movesFor(s, q, d, true).length) return false;
+    return true;
+  }
+
+  // Mixed: no backward move while the opponent cannot move with any throw (plain = true: without that rule)
+  function movesFor(s, p, d, plain) {
     const R = RULES[s.rule];
     const out = [];
     if (s.bar[p] > 0) {
@@ -66,6 +73,7 @@
     const home = allHome(s, p);
     const top = highest(s, p);
     const canBack = R.mixed && s.off[0] === 0 && s.off[1] === 0 && s.bar[1 - p] === 0; // no backward walking once any stone is off, or while any stone is benched
+    let fz = null; // the opponent is frozen (computed when first needed)
     // Mixed: bearing off is mandatory when the die equals the point of one of your stones
     if (R.mixed && home && ownAt(s, p, d)) return [{ from: d, to: 'off', die: d }];
     for (let r = 1; r <= 24; r++) {
@@ -77,7 +85,8 @@
         out.push({ from: r, to: 'off', die: d });
       }
       if (canBack && r > 6 && r + d <= 24 && canLand(s, p, r + d)) {
-        out.push({ from: r, to: r + d, die: d, back: true });
+        if (fz === null && !plain) fz = frozen(s, 1 - p);
+        if (plain || !fz) out.push({ from: r, to: r + d, die: d, back: true });
       }
     }
     return out;
