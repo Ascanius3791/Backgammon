@@ -646,12 +646,137 @@ template <int H> static void unpack(const Rec& r, Pos<H>& s) {
   for (int a = 1; a <= 24; a++) { if (s.b[a] > 0) s.pip[0] += a * s.b[a]; if (s.b[a] < 0) s.pip[1] += (25 - a) * -s.b[a]; }
 }
 
+// ---------------------------------------------------------------- optimizers (replay mode)
+// OPT=sgd (default): every position moves at once, w += alpha * (G - V) * grad V (Hogwild over the workers).
+// OPT=adamw: a worker sums the TD direction (G - V) * grad V over BATCH game visits (default 4), then one AdamW step
+//   on the shared net (under a lock): g = -mean direction, m and v as usual (BETA1 0.9, BETA2 0.999, EPS 1e-8),
+//   w -= lr * (m^ / (sqrt(v^) + eps) + WD * w), WD default 0.01. lr is the alpha argument (schedule as for sgd).
+// OPT=muon: the same batches (BATCH default 16); the matrices (W1 as nin x H, the residual Wd) take a Muon step:
+//   momentum M = MU M + g (MU 0.95), Nesterov u = g + MU M, O = Newton-Schulz orthogonalisation of u (5 steps),
+//   w -= lr * (0.2 sqrt(max(rows, cols)) O + WD w): the 0.2 sqrt(..) makes the update's RMS that of AdamW, so the
+//   same lr is comparable. Biases and W2 take AdamW steps.
+// Memory across restarts: optstate_<rule>.bin next to the weights keeps the last alpha/lr and the optimizer's
+// moments (if the sizes match; the file is ignored if it is for another optimizer: the rates are not comparable). A new run starts at min(alpha, saved alpha) and ends at
+// min(ALPHAEND, that start), so a restart never jumps back to a large rate. ALPHARESET=1 ignores the file.
+struct OptState {
+  int kind = 0; // 0 sgd, 1 adamw, 2 muon
+  int H = 0, nin = 0, deep = 0;
+  long NP = 0, t = 0;
+  double rate = 0, b1 = 0.9, b2 = 0.999, eps = 1e-8, wd = 0.01, mu = 0.95;
+  std::vector<float> m, v;
+  // parameters in the layout of TD::E: W1 (nin*H), b1, W2, b2, then per residual layer W (H*H) and b (H)
+  struct Seg { float* p; long off, len; int rows, cols; bool mat; };
+  std::vector<Seg> segs;
+  void layout(Net& n) {
+    H = n.h; nin = n.nin; deep = n.deep;
+    segs.clear();
+    long o = 0;
+    segs.push_back({ n.W1, o, (long)nin * H, nin, H, true }); o += (long)nin * H;
+    segs.push_back({ n.b1, o, H, 1, H, false }); o += H;
+    segs.push_back({ n.W2, o, H, 1, H, false }); o += H;
+    segs.push_back({ &n.b2, o, 1, 1, 1, false }); o += 1;
+    for (int k = 0; k < deep; k++) {
+      segs.push_back({ n.Wd[k], o, (long)H * H, H, H, true }); o += (long)H * H;
+      segs.push_back({ n.bd[k], o, H, 1, H, false }); o += H;
+    }
+    NP = o;
+    m.assign(NP, 0.f); v.assign(NP, 0.f); t = 0;
+  }
+  // in place: X (r x c, row-major) -> approximately U V^T of its SVD (Muon's quintic Newton-Schulz)
+  static void orthogonalize(std::vector<double>& X, int r, int c) {
+    const bool tr = r > c;
+    int a = tr ? c : r, b = tr ? r : c; // work on the wide a x b orientation
+    std::vector<double> Y((size_t)a * b), A((size_t)a * a), B((size_t)a * a), Z((size_t)a * b);
+    double nf = 0;
+    for (int i = 0; i < r; i++) for (int j = 0; j < c; j++) { double x = X[(size_t)i * c + j]; nf += x * x; if (tr) Y[(size_t)j * b + i] = x; else Y[(size_t)i * b + j] = x; }
+    nf = 1 / (std::sqrt(nf) + 1e-7);
+    for (auto& y : Y) y *= nf;
+    const double ka = 3.4445, kb = -4.7750, kc = 2.0315;
+    for (int it = 0; it < 5; it++) {
+      for (int i = 0; i < a; i++) for (int j = i; j < a; j++) { double s = 0; const double *p = &Y[(size_t)i * b], *q = &Y[(size_t)j * b]; for (int k = 0; k < b; k++) s += p[k] * q[k]; A[(size_t)i * a + j] = A[(size_t)j * a + i] = s; }
+      for (int i = 0; i < a; i++) for (int j = 0; j < a; j++) { double s = 0; for (int k = 0; k < a; k++) s += A[(size_t)i * a + k] * A[(size_t)k * a + j]; B[(size_t)i * a + j] = kb * A[(size_t)i * a + j] + kc * s; }
+      for (int i = 0; i < a; i++) {
+        double* z = &Z[(size_t)i * b];
+        for (int k = 0; k < b; k++) z[k] = ka * Y[(size_t)i * b + k];
+        for (int j = 0; j < a; j++) { double w = B[(size_t)i * a + j]; const double* y = &Y[(size_t)j * b]; for (int k = 0; k < b; k++) z[k] += w * y[k]; }
+      }
+      std::swap(Y, Z);
+    }
+    for (int i = 0; i < r; i++) for (int j = 0; j < c; j++) X[(size_t)i * c + j] = tr ? Y[(size_t)j * b + i] : Y[(size_t)i * b + j];
+  }
+  // one step from the summed TD direction D over n positions
+  void step(const std::vector<double>& D, long n, double lr) {
+    if (n <= 0) return;
+    t++;
+    const double bc1 = 1 - std::pow(b1, (double)t), bc2 = 1 - std::pow(b2, (double)t), inv = 1.0 / n;
+    std::vector<double> U;
+    for (auto& s : segs) {
+      if (kind == 2 && s.mat) {
+        U.assign(s.len, 0);
+        for (long i = 0; i < s.len; i++) {
+          double g = -D[s.off + i] * inv;
+          m[s.off + i] = (float)(mu * m[s.off + i] + g);
+          U[i] = g + mu * m[s.off + i];
+        }
+        orthogonalize(U, s.rows, s.cols);
+        const double sc = 0.2 * std::sqrt((double)std::max(s.rows, s.cols));
+        for (long i = 0; i < s.len; i++) s.p[i] -= (float)(lr * (sc * U[i] + wd * s.p[i]));
+      } else {
+        for (long i = 0; i < s.len; i++) {
+          long k = s.off + i;
+          double g = -D[k] * inv;
+          m[k] = (float)(b1 * m[k] + (1 - b1) * g);
+          v[k] = (float)(b2 * v[k] + (1 - b2) * g * g);
+          s.p[i] -= (float)(lr * ((m[k] / bc1) / (std::sqrt(v[k] / bc2) + eps) + (s.mat ? wd * s.p[i] : 0)));
+        }
+      }
+    }
+  }
+  void save(const std::string& f) const {
+    FILE* fp = fopen(f.c_str(), "wb");
+    if (!fp) return;
+    const char magic[8] = "BGOPT1";
+    fwrite(magic, 1, 8, fp);
+    int hdr[4] = { kind, H, nin, deep };
+    fwrite(hdr, sizeof hdr, 1, fp);
+    fwrite(&NP, sizeof NP, 1, fp); fwrite(&t, sizeof t, 1, fp); fwrite(&rate, sizeof rate, 1, fp);
+    fwrite(m.data(), sizeof(float), m.size(), fp); fwrite(v.data(), sizeof(float), v.size(), fp);
+    fclose(fp);
+  }
+  // returns the saved rate (0 if none); restores the moments if the optimizer and sizes match
+  double load(const std::string& f) {
+    FILE* fp = fopen(f.c_str(), "rb");
+    if (!fp) return 0;
+    char magic[8]; int hdr[4]; long np = 0, tt = 0; double r = 0;
+    bool ok = fread(magic, 1, 8, fp) == 8 && !strcmp(magic, "BGOPT1") && fread(hdr, sizeof hdr, 1, fp) == 1 &&
+              fread(&np, sizeof np, 1, fp) == 1 && fread(&tt, sizeof tt, 1, fp) == 1 && fread(&r, sizeof r, 1, fp) == 1;
+    if (ok && hdr[0] != kind) { printf("optimizer state is for another optimizer: ignored\n"); fclose(fp); return 0; }
+    if (ok && kind != 0 && hdr[1] == H && hdr[2] == nin && hdr[3] == deep && np == NP) {
+      std::vector<float> mm(NP), vv(NP);
+      if (fread(mm.data(), sizeof(float), NP, fp) == (size_t)NP && fread(vv.data(), sizeof(float), NP, fp) == (size_t)NP) { m = mm; v = vv; t = tt; printf("optimizer state restored (%ld steps)\n", t); }
+    }
+    fclose(fp);
+    return ok ? r : 0;
+  }
+};
+// a worker's summed TD direction over its current batch
+struct Acc {
+  std::vector<double> D; long n = 0;
+  explicit Acc(long NP) : D(NP, 0.0) {}
+  template <int H> void add(const bg::TD<H>& td, double delta) {
+    for (int r = 0; r < td.nrows; r++) { long o = (long)td.rows[r] * H; for (int j = 0; j < H; j++) D[o + j] += delta * td.E[o + j]; }
+    for (long i = td.eB1(); i < (long)D.size(); i++) D[i] += delta * td.E[i];
+    n++;
+  }
+  void reset() { std::fill(D.begin(), D.end(), 0.0); n = 0; }
+};
+
 // One visit: lambda-returns of the whole game with the current net, then one pass of moving each position toward
 // its return. Returns the sum of squared errors before the update and the number of positions.
 // EXPFIX: at a step with an Alt the return is the current value of the greedy alternative, and the chain restarts.
 // SIGFRAC: some positions also train the accuracy head (ss: count, mean loss and mean squared target).
 struct SigStats { long n = 0; double loss = 0, e2 = 0; };
-template <int H> static void visitGame(Engine<H>& g, TD<H>& td, const GameRec& gr, double alpha, double lambda, double gamma, std::vector<float>& G, double& sq, long& n, Rng& rng, SigStats& ss) {
+template <int H> static void visitGame(Engine<H>& g, TD<H>& td, const GameRec& gr, double alpha, double lambda, double gamma, std::vector<float>& G, double& sq, long& n, Rng& rng, SigStats& ss, Acc* acc = nullptr) {
   const int T = (int)gr.pos.size();
   static thread_local Pos<H> s, full;
   G.assign(T, 0.f);
@@ -699,7 +824,7 @@ template <int H> static void visitGame(Engine<H>& g, TD<H>& td, const GameRec& g
     }
     sq += (tgt - y) * (tgt - y); n++;
     td.trace(1);
-    td.update(alpha * (tgt - y));
+    if (acc) acc->add<H>(td, tgt - y); else td.update(alpha * (tgt - y));
   }
 }
 
@@ -720,6 +845,30 @@ template <int H> static int runReplay(const Run& R) {
     size_t g = oldRows.rfind("\"game\":");
     if (g != std::string::npos) startGame = atol(oldRows.c_str() + g + 7);
   }
+  OptState opt;
+  {
+    const char* on = getenv("OPT");
+    std::string os = on ? on : "sgd";
+    opt.kind = os == "adamw" ? 1 : os == "muon" ? 2 : os == "sgd" ? 0 : -1;
+    if (opt.kind < 0) { fprintf(stderr, "OPT must be sgd, adamw or muon\n"); return 1; }
+    if (getenv("WD")) opt.wd = atof(getenv("WD"));
+    if (getenv("BETA1")) opt.b1 = atof(getenv("BETA1"));
+    if (getenv("BETA2")) opt.b2 = atof(getenv("BETA2"));
+    if (getenv("MU")) opt.mu = atof(getenv("MU"));
+    opt.layout(*net);
+  }
+  const std::string OPTFILE = dir + "optstate_" + ruleName + ".bin";
+  const long BATCH = getenv("BATCH") ? atol(getenv("BATCH")) : opt.kind == 2 ? 16 : 4;
+  double rate0 = R.ALPHA, rateEnd = R.ALPHAEND;
+  {
+    const char* ar = getenv("ALPHARESET");
+    double saved = ar && atoi(ar) ? 0 : opt.load(OPTFILE);
+    if (saved > 0) { rate0 = std::min(rate0, saved); rateEnd = std::min(rateEnd, rate0); }
+    printf("optimizer %s%s, rate %g -> %g over TIME%s\n", opt.kind == 0 ? "sgd" : opt.kind == 1 ? "adamw" : "muon",
+           opt.kind ? (" (batch " + std::to_string(BATCH) + " visits, wd " + std::to_string(opt.wd) + ")").c_str() : "",
+           rate0, rateEnd, saved > 0 ? " (start capped by the saved rate)" : "");
+  }
+  std::mutex optMtx;
   std::vector<std::string> rows;
   auto save = [&]() {
     std::string w = toJSON(*net);
@@ -728,6 +877,7 @@ template <int H> static int runReplay(const Run& R) {
     std::string all = oldRows;
     for (auto& r : rows) { if (!all.empty()) all += ","; all += r; }
     writeFile(METRICS, "window.METRICS_" + RULE_UP + "=[" + all + "];\n");
+    opt.save(OPTFILE);
   };
   const Opts o { rule, R.PRE, R.TURN_LIMIT, R.MAX_PLIES, R.ALPHA, R.LAMBDA, 0, R.VSGREEDY != 0, R.GAMMA, R.LIMITDRAW != 0, 0, R.EXPLORE, 0, false, R.OPENING, R.SPEEDBONUS, R.BSET, R.BFRAC };
   std::vector<GameRec> buf;
@@ -793,12 +943,20 @@ template <int H> static int runReplay(const Run& R) {
           std::vector<float> G;
           double lsq = 0; long ln = 0, lv = 0;
           SigStats lss;
+          std::unique_ptr<Acc> acc;
+          if (opt.kind) acc = std::make_unique<Acc>(opt.NP);
+          long inBatch = 0;
+          auto sched = [&]() { return R.TIME > 0 ? rate0 + (rateEnd - rate0) * std::min(1.0, elapsed() / R.TIME) : rate0; };
+          double alpha = sched();
           while (!timeUp()) {
             if (visits++ >= total) break;
-            double alpha = R.TIME > 0 ? R.ALPHA + (R.ALPHAEND - R.ALPHA) * std::min(1.0, elapsed() / R.TIME) : R.ALPHA;
+            alpha = sched();
             const GameRec& gr = buf[(size_t)(rng.next() * buf.size())];
-            visitGame<H>(*g, *td, gr, alpha, R.LAMBDA, R.GAMMA, G, lsq, ln, rng, lss); lv++;
+            visitGame<H>(*g, *td, gr, alpha, R.LAMBDA, R.GAMMA, G, lsq, ln, rng, lss, acc.get()); lv++;
+            if (acc && ++inBatch >= BATCH) { std::lock_guard<std::mutex> lk(optMtx); opt.step(acc->D, acc->n, alpha); acc->reset(); inBatch = 0; }
           }
+          if (acc && acc->n) { std::lock_guard<std::mutex> lk(optMtx); opt.step(acc->D, acc->n, alpha); }
+          { std::lock_guard<std::mutex> lk(optMtx); opt.rate = sched(); }
           std::lock_guard<std::mutex> lk(mtx);
           sq += lsq; cnt += ln; vis += lv; sig.n += lss.n; sig.loss += lss.loss; sig.e2 += lss.e2;
         });
