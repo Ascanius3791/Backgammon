@@ -61,7 +61,10 @@ EXPORT(setDeep) int setDeep(int r, int d) {
   return 1;
 }
 // shape of nets[r]: inputs and hidden units (0 if h is not a compiled size); weights are laid out by it
+// new weights follow: the kept rollout starts (Engine::pre) are void
+#define BG_NEWGEN(n) reinterpret_cast<Ctx<n>*>(mem##n)->eng.preGen++;
 EXPORT(setShape) int setShape(int r, int nin, int h) {
+  BG_SIZES(BG_NEWGEN)
   if (!hiddenOk(h)) return 0;
   nets[r].nin = nin; nets[r].h = h;
   return 1;
@@ -189,12 +192,13 @@ EXPORT(rollouts) void rollouts(int p, int n, unsigned seed, int both, int cap) {
 
 // Truncated rollouts for the rollout bot (pool.js rolloutBest): games i0 .. i0+n-1 from cur for player p,
 // game i with the throws of seed (seedHi, seedLo, i) (Engine::rollout), so the same game index gives the
-// same throws from every candidate end. Results into fout[0..n-1].
-EXPORT(rollRange) void rollRange(int p, int i0, int n, unsigned seedHi, unsigned seedLo, int trunc, int cap) {
+// same throws from every candidate end. strat: the first throw of game i is throw i % 36 (stratified, and the
+// game up to its second throw is played once per start and first throw: Engine::rollout). Results into fout[0..n-1].
+EXPORT(rollRange) void rollRange(int p, int i0, int n, unsigned seedHi, unsigned seedLo, int trunc, int cap, int strat) {
   if (n > ENDS_MAX * END_W) n = ENDS_MAX * END_W;
   with([&](auto& c) {
     uint64_t base = mix64(((uint64_t)seedHi << 32) | seedLo);
-    for (int i = 0; i < n; i++) fout[i] = c.eng.rollout(c.cur, p, mix64(base + (uint64_t)(i0 + i)), trunc, cap);
+    for (int i = 0; i < n; i++) fout[i] = c.eng.rollout(c.cur, p, mix64(base + (uint64_t)(i0 + i)), trunc, cap, strat ? i0 + i : -1);
   });
 }
 
@@ -224,6 +228,7 @@ EXPORT(tdStep) float tdStep(int sign, float delta) {
     float y = (float)c.td.forward(c.eng, c.cur);
     c.td.trace(sign);
     c.td.update(delta);
+    c.eng.preGen++; // the weights changed
     return y;
   });
 }

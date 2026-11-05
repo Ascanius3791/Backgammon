@@ -197,6 +197,9 @@ for (const rule of ['paul', 'rene', 'mixed']) {
       const ends = L.endStates(s).slice(0, 2).map((e) => require('./pool.js').pack(e.s));
       const r1 = C.rollRange('mixed', net, ends, s.turn, 5, 6, 1, 2, 8, 800), r2 = C.rollRange('mixed', net, ends, s.turn, 5, 6, 1, 2, 8, 800);
       if (JSON.stringify(r1) !== JSON.stringify(r2) || r1.flat().some((x) => !(x >= 0 && x <= 1))) fail(`rollRange ${JSON.stringify(r1)} vs ${JSON.stringify(r2)}`);
+      // stratified: games 0..39 (the last 4 reuse the play up to the second throw), cold, then warm
+      const s1 = C.rollRange('mixed', net, ends, s.turn, 0, 40, 3, 4, 8, 800, true), s2 = C.rollRange('mixed', net, ends, s.turn, 0, 40, 3, 4, 8, 800, true);
+      if (JSON.stringify(s1) !== JSON.stringify(s2) || s1.flat().some((x) => !(x >= 0 && x <= 1))) fail(`rollRange strat ${JSON.stringify(s1)} vs ${JSON.stringify(s2)}`);
       const keys = L.endStates(s).map((e) => L.key(e.s));
       for (const opt of [{}, { replies: true }]) {
         const got = await pool.rolloutBest('mixed', net, s, opt.replies ? 1500 : 300, 0, null, opt).promise;

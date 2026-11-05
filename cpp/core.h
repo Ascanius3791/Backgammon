@@ -209,7 +209,26 @@ template <int H> struct Engine {
   int ncand = 0;
   uint64_t nEval = 0;
 
+  // stratified rollouts (rollout with strat >= 0): the game up to the second throw depends only on the start
+  // and the first throw, so it is played once per first throw and kept here, for PRE_SLOTS starts at a time
+  // (direct-mapped by preKey: the start, trunc, cap and preGen). Bump preGen when the weights change
+  // (setRule does when the net or rule changes).
+  static constexpr int PRE_SLOTS = 32;
+  struct PreEnd { bool have; int k0, k1, steps; Pos s; };
+  PreEnd pre[PRE_SLOTS][36];
+  uint64_t preKey[PRE_SLOTS] = {}, preGen = 1, preHits = 0;
+  bool preUse = true; // false: stratified without the memo (for checks)
+  uint64_t startKey(const Pos& s, int trunc, int cap) const {
+    uint64_t z = s.hash;
+    const uint64_t f[] = { s.turn, s.phase, s.t0, s.t1, s.pending, s.rolledDouble, (uint64_t)s.turnCount, s.cnt[1], s.cnt[2],
+                           s.cnt[3], s.cnt[4], s.cnt[5], s.cnt[6], (uint64_t)trunc, (uint64_t)cap, preGen, (uint64_t)plyLimit,
+                           (uint64_t)limitDraw, (uint64_t)moveDepth };
+    for (uint64_t x : f) z = mix64(z ^ (x + 0x9E3779B97F4A7C15ull));
+    return z | 1;
+  }
+
   void setRule(int r, int limit, const Net* n) {
+    if (n != net || r != rule) preGen++;
     rule = r; plyLimit = limit; net = n;
     mixed = r == MIXED; dm = r == RENE ? 4 : 2; rollAgain = r != MIXED;
   }
@@ -661,18 +680,33 @@ template <int H> struct Engine {
   // is returned instead of playing on; a finished game gives 1 / 0 (1/2 drawn at the turn limit). With
   // trunc = 0 a game cut after cap throws counts 1/2. Mixed small champion, 8 throws: error per game of the
   // difference of two moves ~0.2 (shared throws barely correlate games in Mixed), ~10k games/s on 8 threads.
-  float rollout(Pos s, int p, uint64_t seed, int trunc, int cap = 800) {
+  // strat >= 0: the first throw of the game is not drawn but throw strat % 36 (a = 1 + strat / 6 % 6,
+  // b = 1 + strat % 6), so games strat = 0..35 see every first throw once (stratified sampling).
+  // The game up to its second throw then comes from pre (exact: the same start and first throw give the same play).
+  float rollout(Pos s, int p, uint64_t seed, int trunc, int cap = 800, int strat = -1) {
     int k[2] = { 0, 0 }, steps = 0;
+    PreEnd* keep = nullptr; // the stratum's entry, to be filled at the second throw
+    if (strat >= 0 && trunc != 1 && preUse) {
+      uint64_t key = startKey(s, trunc, cap);
+      int slot = (int)(key >> 40) % PRE_SLOTS;
+      if (key != preKey[slot]) { preKey[slot] = key; for (auto& e : pre[slot]) e.have = false; }
+      PreEnd& e = pre[slot][strat % 36];
+      if (e.have) { s = e.s; k[0] = e.k0; k[1] = e.k1; steps = e.steps; preHits++; }
+      else keep = &e;
+    }
     while (s.phase != OVER) {
       if (s.phase != ROLL) { playBest(s, &steps); continue; }
       int n = k[0] + k[1];
+      if (keep && n == 1) { keep->s = s; keep->k0 = k[0]; keep->k1 = k[1]; keep->steps = steps; keep->have = true; keep = nullptr; }
       if (trunc && n >= trunc) return valueFor(s, p);
       if (!trunc && n >= cap) return 0.5f;
+      if (n == 0 && strat >= 0) { k[s.turn]++; roll(s, 1 + strat / 6 % 6, 1 + strat % 6); continue; }
       Rng r;
       r.s = mix64(seed ^ (0x9E3779B97F4A7C15ull * (uint64_t)(2 * k[s.turn]++ + s.turn + 1))) | 1;
       int a = r.die();
       roll(s, a, r.die());
     }
+    if (keep) { keep->s = s; keep->k0 = k[0]; keep->k1 = k[1]; keep->steps = steps; keep->have = true; } // over before
     return s.winner < 0 ? 0.5f : s.winner == p ? 1.f : 0.f;
   }
 

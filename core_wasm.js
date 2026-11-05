@@ -75,12 +75,13 @@
         return Array.from(f32(ex.foutPtr(), 5));
       },
       // truncated rollouts for the rollout bot: per end of ends, the results of games i0 .. i0+n-1 for player p
-      // (game i has the same throws from every end; the net's value after trunc throws; see cpp/wasm.cpp rollRange)
-      rollRange(rule, net, ends, p, i0, n, seedHi, seedLo, trunc, cap) {
+      // (game i has the same throws from every end; the net's value after trunc throws; strat: game i's first
+      // throw is throw i % 36; see cpp/wasm.cpp rollRange)
+      rollRange(rule, net, ends, p, i0, n, seedHi, seedLo, trunc, cap, strat) {
         useNet(rule, net);
         return ends.map((e) => {
           load(e);
-          ex.rollRange(p, i0, n, seedHi >>> 0, seedLo >>> 0, trunc, cap);
+          ex.rollRange(p, i0, n, seedHi >>> 0, seedLo >>> 0, trunc, cap, strat ? 1 : 0);
           return Array.from(f32(ex.foutPtr(), n));
         });
       },
