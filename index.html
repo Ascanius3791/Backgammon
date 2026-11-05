@@ -84,7 +84,7 @@
         <label><input type="checkbox" id="botW"> White</label>
         <label><input type="checkbox" id="botB"> Black</label>
         <label><input type="checkbox" id="botStep"> Wait for me</label>
-        <label title="How many rolls the bot looks ahead. 2 to 4 search in background threads; 4 takes seconds (Paul) to many minutes (Mixed) per move. Rollouts: the moves with the best depth-2 values (up to 8) are played out many times by the depth-1 bot for 8 throws, with the same dice for every move, and then scored by the net; a move is dropped once it is behind by 2 standard errors; the bot plays the leader when the time is up. The time is per decision (in Mixed the move and the walk of a throw are two)">Depth <select id="botDepth"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="r1">Rollouts 1 s</option><option value="r3">Rollouts 3 s</option></select></label>
+        <label title="How many rolls the bot looks ahead. 2 to 4 search in background threads; 4 takes seconds (Paul) to many minutes (Mixed) per move. Rollouts: the moves with the best depth-2 values (up to 8) are played out many times by the depth-1 bot for 8 throws, with the same dice for every move, and then scored by the net; a move is dropped once it is behind by 2 standard errors; the bot plays the leader when the time is up. Rollouts + replies (Mixed): after our move the rollouts start only at the next roll, once for each of the opponent's best walks of our throw (up to 4), and a move counts with its worst walk for us. The time is per decision (in Mixed the move and the walk of a throw are two)">Depth <select id="botDepth"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="r1">Rollouts 1 s</option><option value="r3">Rollouts 3 s</option><option value="r5">Rollouts 5 s</option><option value="o3">Rollouts + replies 3 s</option><option value="o5">Rollouts + replies 5 s</option></select></label>
         <button id="botGo" style="display:none">Continue</button>
       </div>
       <div class="count" id="count" style="margin-top:8px"></div>
@@ -511,9 +511,9 @@ $('mixedNet').onchange = () => {
   render();
 };
 const botOn = [() => $('botW').checked, () => $('botB').checked];
-const botDepth = () => $('botDepth').value; // '1'..'4', or 'r1' / 'r3': the rollout bot with 1 / 3 s per segment
-const rollBot = (d) => d[0] === 'r';
-const botDepthName = (d) => (rollBot(d) ? `rollouts ${d.slice(1)} s` : `depth ${d}`);
+const botDepth = () => $('botDepth').value; // '1'..'4', 'r1' / 'r3' / 'r5': the rollout bot with 1 / 3 / 5 s per segment, 'o3' / 'o5': the same with the opponent's walks
+const rollBot = (d) => d[0] === 'r' || d[0] === 'o';
+const botDepthName = (d) => (rollBot(d) ? `rollouts${d[0] === 'o' ? ' + replies' : ''} ${d.slice(1)} s` : `depth ${d}`);
 // depth 1: the net's own choice, move by move. Deeper: the plan for the whole segment is searched once in
 // the pool (expectimax with cutoffs in the C++ core), then played move by move.
 let botTimer = null, botThink = null, botPlan = null; // botPlan.path[i] is played from the state with key botPlan.keys[i]
@@ -536,7 +536,7 @@ function botStep() {
   else if (!botThink) {
     const st = BotLib.cloneState(s);
     const task = botThink = rollBot(d)
-      ? pool.rolloutBest(s.rule, nets[s.rule], s, 1000 * +d.slice(1), PRI_BOT, (info) => { task.info = info; })
+      ? pool.rolloutBest(s.rule, nets[s.rule], s, 1000 * +d.slice(1), PRI_BOT, (info) => { task.info = info; }, { replies: d[0] === 'o' })
       : pool.best(s.rule, nets[s.rule], s, +d, PRI_BOT);
     Object.assign(task, { key: k, depth: d, t0: performance.now() });
     task.promise.then((res) => {

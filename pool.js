@@ -241,14 +241,21 @@
     // The rollout bot: the best way to finish the segment of s0 by truncated rollouts, in about ms milliseconds.
     // 1. every candidate end gets its depth-2 value (prefilter; 1-ply values of moves the bot never plays are
     //    unreliable); the best KEEP within MARGIN of the best go on.
-    // 2. Racing: batches of games run on all workers, game i with the same throws from every candidate (paired);
-    //    each game is played by the 1-ply bot for trunc throws, then the net's value counts. After each batch a
-    //    candidate is dropped once the leader is ahead by more than Z standard errors of the paired difference
-    //    (from MINN games on). Ends when one candidate is left or the time is up; the leader by mean is played.
-    // { promise, cancel }; the promise gives { path, value, key, n, games, ms, cands: [{ path, key, d2, mean, se, n, alive }] }
-    // (se: error of the difference to the chosen move; mean null if it played no game), or null without a move. onProgress(info) with the same fields.
+    // 2. With opt.replies, a candidate that ends in the opponent's walk of our throw (Mixed: our move) is split into
+    //    arms, one per walk of the opponent (their best KR by the net within MR), so the rollouts start at the next
+    //    roll; the candidate's value is the minimum over its arms (the opponent picks). Otherwise one arm, its end.
+    // 3. Racing: batches of games run on all workers, game i with the same throws from every arm (paired); each
+    //    game is played by the 1-ply bot for trunc throws, then the net's value counts. After each batch (from MINN
+    //    games on) an arm is dropped once it is worse for the opponent than their best arm of the same candidate by
+    //    more than Z standard errors of the paired difference, and a candidate once its best-for-the-opponent arm is
+    //    behind every arm of the leader by more than Z. Ends when one candidate is left or the time is up; the leader
+    //    (by value) is played.
+    // { promise, cancel }; the promise gives { path, value, key, n, games, ms, cands: [{ path, key, d2, mean, se, n, alive, arms }] }
+    // (se: error of the difference to the chosen move; mean null if it played no game; arms: replies still in), or null
+    // without a move. onProgress(info) with the same fields.
     rolloutBest(rule, net, s0, ms, pri, onProgress, opt = {}) {
       const trunc = opt.trunc || 8, KEEP = opt.keep || 8, MARGIN = opt.margin || 0.25, Z = opt.z || 2, MINN = opt.minn || 72;
+      const KR = opt.kr || 4, MR = opt.mr || 0.25;
       const group = {}, now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
       const t0 = now(), p = s0.turn;
       const promise = new Promise((resolve) => {
@@ -257,6 +264,7 @@
         for (const c of cs) {
           const e = L.cloneState(s0);
           for (const m of c.path) BG.applyMove(e, m);
+          c.st = e;
           c.end = pack(e);
           c.key = L.key(e);
         }
@@ -268,19 +276,35 @@
           group, pri, rule, net, s: cs[i].end, p, depth: 2, alpha: () => -1, beta: 2,
           resolve: (v) => { cs[i].d2 = v; if (--left === 0) race(); },
         });
-        // 2. racing
+        // 2. arms, 3. racing
         const race = () => {
           const order = cs.map((c, i) => i).sort((a, b) => cs[b].d2 - cs[a].d2);
           const top = cs[order[0]].d2;
-          const R = order.slice(0, KEEP).filter((i) => cs[i].d2 >= top - MARGIN)
-            .map((i) => ({ i, res: [], alive: true, sum: 0, n: 0 })); // res[g]: result of game g (undefined: not played)
+          const R = order.slice(0, KEEP).filter((i) => cs[i].d2 >= top - MARGIN).map((i) => {
+            const e = cs[i].st, arms = [];
+            if (opt.replies && e.phase === 'walk' && e.turn !== p) {
+              const rs = C.cands(rule, net, e); // the opponent's walks, best for them first
+              for (let r = 0; r < rs.length && r < KR && rs[r].q >= rs[0].q - MR; r++) {
+                const w = L.cloneState(e);
+                for (const m of rs[r].path) BG.applyMove(w, m);
+                arms.push(w);
+              }
+            }
+            if (!arms.length) arms.push(e);
+            return { i, alive: true, arms: arms.map((w) => ({ end: pack(w), res: [], sum: 0, n: 0, alive: true })) };
+          });
+          for (const r of R) for (const a of r.arms) a.r = r;
           const seedHi = (Math.random() * 2 ** 32) >>> 0, seedLo = (Math.random() * 2 ** 32) >>> 0;
           const cap = rule === 'mixed' ? 800 : 5000, end = t0 + ms;
-          let next = 0, inflight = 0, busy = 0, played = 0, finished = false; // busy: worker-ms per game and candidate, summed
+          let next = 0, inflight = 0, busy = 0, played = 0, finished = false; // busy: worker-ms per game and arm, summed
           const alive = () => R.filter((r) => r.alive);
-          const mean = (r) => (r.n ? r.sum / r.n : -1);
-          const leader = () => alive().reduce((b, r) => (mean(r) > mean(b) ? r : b));
-          // mean and standard error of b - r over the games both have
+          const liveArms = () => R.filter((r) => r.alive).flatMap((r) => r.arms.filter((a) => a.alive));
+          const am = (a) => a.sum / a.n;
+          const minArm = (r) => r.arms.reduce((b, a) => (a.alive && (!b || am(a) < am(b)) ? a : b), null);
+          const played1 = (r) => r.arms[0].n > 0;
+          const val = (r) => (played1(r) ? am(minArm(r)) : cs[r.i].d2);
+          const leader = () => alive().reduce((b, r) => (val(r) > val(b) ? r : b));
+          // mean and standard error of b - r over the games both have (b, r: arms)
           const diff = (b, r) => {
             let n = 0, s = 0, ss = 0;
             const m = Math.min(b.res.length, r.res.length);
@@ -291,43 +315,53 @@
               n++; s += d; ss += d * d;
             }
             if (n < 2) return { n, d: 0, se: Infinity };
-            const d = s / n;
-            return { n, d, se: Math.sqrt(Math.max(ss / n - d * d, 1e-8) / (n - 1)) };
+            const d = s / n, v = ss / n - d * d;
+            return { n, d, se: Math.sqrt(Math.max(v, 1e-8) / (n - 1)), same: v < 1e-10 }; // same: the difference is constant
           };
           const info = () => {
             const b = leader();
             const list = R.map((r) => {
-              const df = r === b ? { se: 0 } : diff(b, r);
-              return { path: cs[r.i].path, key: cs[r.i].key, d2: cs[r.i].d2, mean: r.n ? mean(r) : null, se: df.se, n: r.n, alive: r.alive };
+              const df = r === b || !played1(r) ? { se: r === b ? 0 : Infinity } : diff(minArm(b), minArm(r));
+              return {
+                path: cs[r.i].path, key: cs[r.i].key, d2: cs[r.i].d2, mean: played1(r) ? val(r) : null, se: df.se,
+                n: played1(r) ? minArm(r).n : 0, alive: r.alive, arms: r.arms.filter((a) => a.alive).length,
+              };
             }).sort((x, y) => (y.n ? y.mean : -1) - (x.n ? x.mean : -1));
             // no game in time (the prefilter took it all): the best move by depth 2 and its value
-            return out(b.i, { value: b.n ? mean(b) : cs[b.i].d2, games: played, cands: list });
+            return out(b.i, { value: val(b), games: played, cands: list });
           };
           const finish = () => { if (!finished) { finished = true; resolve(info()); } };
+          // b ahead of r by more than Z standard errors, or the same difference in every game (e.g. both lose for
+          // sure: without this a decided position races on, with ever larger batches)
+          const ahead = (df) => df.n >= MINN && (df.d > Z * df.se || (df.same && df.d >= 0));
           const prune = () => {
+            for (const r of alive()) {
+              const w = minArm(r); // the opponent would not choose a clearly worse walk
+              for (const a of r.arms) if (a.alive && a !== w && ahead(diff(a, w))) a.alive = false;
+            }
             const b = leader();
             for (const r of alive()) {
               if (r === b) continue;
-              const df = diff(b, r);
-              if (df.n >= MINN && df.d > Z * df.se) r.alive = false;
+              const w = minArm(r);
+              if (b.arms.every((a) => !a.alive || ahead(diff(a, w)))) r.alive = false;
             }
           };
-          if (R.length === 1) { R[0].n = 1; R[0].sum = cs[R[0].i].d2; return finish(); }
+          if (R.length === 1) return finish();
           const launch = () => {
-            const rs = alive(), rem = end - now();
-            if (rs.length < 2 || rem <= 0) return false;
-            const per = played ? busy / played : 0; // worker-ms per game and candidate
-            const k = !per ? 4 : Math.max(1, Math.min(Math.round(150 / (per * rs.length)), Math.floor(rem / (per * rs.length))));
-            if (per && rem < per * rs.length) return false;
+            const as = liveArms(), rem = end - now();
+            if (alive().length < 2 || rem <= 0) return false;
+            const per = played ? busy / played : 0; // worker-ms per game and arm
+            const k = !per ? 4 : Math.max(1, Math.min(Math.round(150 / (per * as.length)), Math.floor(rem / (per * as.length)), 2048)); // 2048: well inside rollRange's buffer
+            if (per && rem < per * as.length) return false;
             const i0 = next, st = now();
             next += k; inflight++;
             this.submit({
-              group, pri, rule, net, rr: true, ends: rs.map((r) => cs[r.i].end), p, i0, n: k, seedHi, seedLo, trunc, cap,
+              group, pri, rule, net, rr: true, ends: as.map((a) => a.end), p, i0, n: k, seedHi, seedLo, trunc, cap,
               resolve: (res) => {
                 inflight--;
-                busy += now() - st; played += k * rs.length;
-                rs.forEach((r, j) => {
-                  for (let g = 0; g < k; g++) { const x = res[j][g]; r.res[i0 + g] = x; r.sum += x; r.n++; }
+                busy += now() - st; played += k * as.length;
+                as.forEach((a, j) => {
+                  for (let g = 0; g < k; g++) { const x = res[j][g]; a.res[i0 + g] = x; a.sum += x; a.n++; }
                 });
                 prune();
                 if (onProgress) onProgress(info());
